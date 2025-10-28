@@ -439,14 +439,16 @@
             <div class="search-tabs">
                 <div class="tab active" data-tab="folders">📁 Navegación</div>
                 <div class="tab" data-tab="search">🔍 Buscar en Texto</div>
-                <div class="tab" data-tab="nopdf">📋 Sin PDF</div>
+                <div class="tab" data-tab="database">📚 Base de Datos</div>
             </div>
 
             <div class="search-content">
                 <div id="foldersTab" class="tab-content">
                     <div class="search-box">
                         <h3>Navegador de Documentos</h3>
-                        <p>Utiliza el panel de la izquierda para navegar por tu biblioteca de documentos. Los archivos indexados aparecen en verde ✅ y los no indexados en gris ⏳.</p>
+                        <p>Utiliza el panel de la izquierda para navegar por tu biblioteca de documentos. 
+                           <br>📄 = Archivo PDF | ✅ = Indexado (texto extraído) | ⏳ = No indexado
+                        </p>
                     </div>
                     <div id="folderContent">
                         <div class="no-results">
@@ -472,15 +474,16 @@
                     <div id="searchResults" class="results"></div>
                 </div>
 
-                <div id="nopdfTab" class="tab-content" style="display: none;">
+                <div id="databaseTab" class="tab-content" style="display: none;">
                     <div class="search-box">
-                        <h3>📋 Entradas sin PDF</h3>
+                        <h3>📚 Base de Datos Zotero</h3>
                         <p style="font-size: 0.9rem; color: #7f8c8d;">
-                            Referencias bibliográficas que no tienen archivos PDF adjuntos. Haz clic en el título para abrir el artículo original.
+                            Todas las entradas en tu biblioteca Zotero. 
+                            <br>📄 = Con PDF (click para abrir) | 🔗 = URL disponible (click para abrir) | ⚠️ = Sin PDF ni URL
                         </p>
                     </div>
-                    <div id="noPdfResults" class="results">
-                        <div class="loading">Cargando entradas sin PDF...</div>
+                    <div id="databaseResults" class="results">
+                        <div class="loading">Cargando entradas de la base de datos...</div>
                     </div>
                 </div>
             </div>
@@ -592,9 +595,9 @@
             });
             document.getElementById(tabName + 'Tab').style.display = 'block';
             
-            // Cargar items sin PDF cuando se abre esa pestaña
-            if (tabName === 'nopdf') {
-                loadItemsWithoutPDF();
+            // Cargar entradas de base de datos cuando se abre esa pestaña
+            if (tabName === 'database') {
+                loadDatabaseEntries();
             }
         }
 
@@ -758,9 +761,9 @@
             document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
             document.getElementById(tabName + 'Tab').style.display = 'block';
             
-            // Cargar items sin PDF cuando se abre esa pestaña
-            if (tabName === 'nopdf') {
-                loadItemsWithoutPDF();
+            // Cargar entradas de base de datos cuando se abre esa pestaña
+            if (tabName === 'database') {
+                loadDatabaseEntries();
             }
         }
 
@@ -828,7 +831,7 @@
                     return `
                         <div class="result ${indexedClass}" data-path="${file.path}">
                             <div class="result-title" onclick="openFile('${file.path.replace('/app/data/biblioteca/', '')}')">
-                                ${indexedIcon} ${file.name}
+                                📄 ${file.name} ${indexedIcon}
                             </div>
                             <div class="result-path">
                                 📁 ${file.path.replace('/app/data/biblioteca/', '')} ${fileSizeText}
@@ -1122,69 +1125,72 @@
             return div.innerHTML;
         }
 
-        // Cargar items sin PDF
-        async function loadItemsWithoutPDF() {
-            const noPdfResults = document.getElementById('noPdfResults');
+        // Cargar todas las entradas de la base de datos Zotero
+        async function loadDatabaseEntries() {
+            const databaseResults = document.getElementById('databaseResults');
             
             try {
-                noPdfResults.innerHTML = '<div class="loading">Cargando entradas sin PDF...</div>';
+                databaseResults.innerHTML = '<div class="loading">Cargando entradas de la base de datos...</div>';
                 
-                const response = await fetch(`${API_BASE}/library/no-pdf`);
+                const response = await fetch(`${API_BASE}/api/zotero/entries?limit=1000`);
                 
                 if (!response.ok) {
                     throw new Error(`Error HTTP: ${response.status}`);
                 }
                 
-                const items = await response.json();
+                const data = await response.json();
+                const entries = data.entries || [];
                 
-                if (items.length === 0) {
-                    noPdfResults.innerHTML = `
+                if (entries.length === 0) {
+                    databaseResults.innerHTML = `
                         <div class="no-results">
-                            ✅ Todas las entradas tienen archivos PDF adjuntos
+                            📚 No se encontraron entradas en la base de datos Zotero
                         </div>
                     `;
                 } else {
-                    renderItemsWithoutPDF(items);
+                    renderDatabaseEntries(entries, data);
                 }
                 
             } catch (error) {
-                console.error('❌ Error cargando items sin PDF:', error);
-                noPdfResults.innerHTML = `
+                console.error('❌ Error cargando entradas de base de datos:', error);
+                databaseResults.innerHTML = `
                     <div class="error-message">
-                        Error cargando entradas sin PDF: ${error.message}
+                        Error cargando entradas de la base de datos: ${error.message}
                     </div>
                 `;
             }
         }
 
-        function renderItemsWithoutPDF(items) {
-            const noPdfResults = document.getElementById('noPdfResults');
+        function renderDatabaseEntries(entries, stats) {
+            const databaseResults = document.getElementById('databaseResults');
             
-            const itemsHTML = items.map(item => {
+            const entriesHTML = entries.map((entry, index) => {
                 // Escapar valores para seguridad
-                const safeTitle = escapeHtml(item.title);
-                const safeAuthors = escapeHtml(item.authors || 'Desconocido');
-                const safeYear = escapeHtml(item.year || 'N/A');
-                const safeType = escapeHtml(item.type || 'documento');
-                const safeUrl = item.url ? escapeHtml(item.url) : '';
+                const safeTitle = escapeHtml(entry.title);
+                const safeAuthors = escapeHtml(entry.authors || 'Desconocido');
+                const safeYear = escapeHtml(entry.year || 'N/A');
+                const safeType = escapeHtml(entry.type || 'documento');
+                const safeUrl = entry.url ? escapeHtml(entry.url) : '';
+                const hasPdf = entry.hasPdf;
+                
+                // Determinar el icono y comportamiento
+                const icon = hasPdf ? '📄' : (safeUrl ? '🔗' : '⚠️');
+                const clickAction = hasPdf 
+                    ? `onclick="openPdfFromAttachment(${JSON.stringify(entry.attachmentPath || '')})"` 
+                    : (safeUrl ? `onclick="window.open(${JSON.stringify(safeUrl)}, '_blank')"` : '');
+                const cursor = (hasPdf || safeUrl) ? 'pointer' : 'default';
+                const titleColor = (hasPdf || safeUrl) ? '#3498db' : '#999';
+                const titleDecoration = (hasPdf || safeUrl) ? 'underline' : 'none';
                 
                 // Crear el HTML del item
-                let itemHTML = `<div class="result-item" style="cursor: ${item.url ? 'pointer' : 'default'};">`;
+                let itemHTML = `<div class="result-item" style="cursor: ${cursor};">`;
                 
-                // Título - clickeable si tiene URL
-                if (item.url) {
-                    itemHTML += `
-                        <div class="result-title" onclick="window.open('${safeUrl}', '_blank')" style="color: #3498db; text-decoration: underline;">
-                            📄 ${safeTitle} 🔗
-                        </div>
-                    `;
-                } else {
-                    itemHTML += `
-                        <div class="result-title">
-                            📄 ${safeTitle}
-                        </div>
-                    `;
-                }
+                // Título - clickeable si tiene PDF o URL
+                itemHTML += `
+                    <div class="result-title" ${clickAction} style="color: ${titleColor}; text-decoration: ${titleDecoration};">
+                        ${icon} ${safeTitle}
+                    </div>
+                `;
                 
                 // Información adicional
                 itemHTML += `
@@ -1194,14 +1200,14 @@
                         <strong>Tipo:</strong> ${safeType}
                 `;
                 
-                if (item.url) {
-                    itemHTML += `<br><strong>URL:</strong> <a href="${safeUrl}" target="_blank" onclick="event.stopPropagation();" style="color: #3498db;">${safeUrl}</a>`;
+                if (safeUrl && !hasPdf) {
+                    itemHTML += `<br><strong>URL:</strong> <a href="${safeUrl}" target="_blank" onclick="event.stopPropagation();" style="color: #3498db;">${safeUrl.substring(0, 80)}${safeUrl.length > 80 ? '...' : ''}</a>`;
                 }
                 
                 itemHTML += `
                     </div>
                     <div class="result-path">
-                        🗓️ Añadido: ${new Date(item.dateAdded).toLocaleDateString()}
+                        🗓️ Añadido: ${new Date(entry.dateAdded).toLocaleDateString()} | Estado: ${hasPdf ? '✅ Con PDF' : (safeUrl ? '🔗 URL disponible' : '⚠️ Sin PDF ni URL')}
                     </div>
                 </div>
                 `;
@@ -1209,12 +1215,79 @@
                 return itemHTML;
             }).join('');
             
-            noPdfResults.innerHTML = `
+            databaseResults.innerHTML = `
                 <div style="margin-bottom: 1rem; font-size: 0.9rem; color: #7f8c8d;">
-                    Se encontraron ${items.length} entrada${items.length !== 1 ? 's' : ''} sin PDF
+                    Se encontraron ${entries.length} entrada${entries.length !== 1 ? 's' : ''} 
+                    (${stats.withPdf || 0} con PDF, ${stats.withoutPdf || 0} sin PDF)
                 </div>
-                ${itemsHTML}
+                ${entriesHTML}
             `;
+        }
+        
+        // Función auxiliar para abrir PDF desde la ruta de attachment de Zotero
+        function openPdfFromAttachment(attachmentPath) {
+            if (!attachmentPath) {
+                alert('No se encontró la ruta del PDF');
+                return;
+            }
+            
+            try {
+                // La ruta del attachment en Zotero es relativa al storage
+                // Ejemplo: "storage:ABCD1234/filename.pdf"
+                let pdfPath = attachmentPath;
+                
+                if (pdfPath.startsWith('storage:')) {
+                    pdfPath = pdfPath.substring(8); // Remover "storage:"
+                }
+                
+                // Extraer el nombre del archivo (última parte del path)
+                const parts = pdfPath.split('/');
+                const pdfFilename = parts[parts.length - 1];
+                
+                console.log('🔍 Buscando PDF:', pdfFilename);
+                
+                // Buscar el archivo en la biblioteca
+                searchPdfInBiblioteca(pdfFilename);
+                
+            } catch (error) {
+                console.error('Error abriendo PDF:', error);
+                alert(`Error abriendo PDF: ${error.message}`);
+            }
+        }
+        
+        // Función para buscar y abrir PDF en la biblioteca
+        async function searchPdfInBiblioteca(filename) {
+            try {
+                // Buscar en la biblioteca por nombre de archivo exacto
+                const response = await fetch(`${API_BASE}/api/search?q=${encodeURIComponent(filename)}&limit=10`);
+                
+                if (!response.ok) {
+                    throw new Error(`Error HTTP: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.results && data.results.length > 0) {
+                    // Buscar coincidencia exacta por nombre de archivo
+                    const exactMatch = data.results.find(r => {
+                        const resultFilename = r.path.split('/').pop();
+                        return resultFilename === filename;
+                    });
+                    
+                    if (exactMatch) {
+                        openFile(exactMatch.path);
+                    } else {
+                        // Si no hay coincidencia exacta, abrir el primer resultado
+                        openFile(data.results[0].path);
+                    }
+                } else {
+                    alert(`No se encontró el PDF "${filename}" en la biblioteca.\nAsegúrate de que el archivo esté sincronizado.`);
+                }
+                
+            } catch (error) {
+                console.error('Error buscando PDF:', error);
+                alert(`Error buscando PDF: ${error.message}`);
+            }
         }
 
         // Actualizar estadísticas

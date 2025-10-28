@@ -63,3 +63,11 @@ ecosystem.config.js
 # Backup files
 *.bak
 *.backup
+
+# Data directories (biblioteca, storage, etc)
+data/
+biblioteca/
+storage/
+
+# Sync scripts output
+sync.log

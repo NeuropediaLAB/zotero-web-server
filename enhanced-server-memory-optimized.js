@@ -421,7 +421,8 @@ function getLibraryPDFs(dir = BIBLIOTECA_DIR, page = 1, limit = 50, folderFilter
                                 path: fullPath,
                                 size: stat.size,
                                 modified: stat.mtime,
-                                indexed: pdfTextIndex.has(fullPath)
+                                indexed: pdfTextIndex.has(fullPath),
+                                hasPdf: true
                             });
                         }
                         count++;
@@ -441,6 +442,142 @@ function getLibraryPDFs(dir = BIBLIOTECA_DIR, page = 1, limit = 50, folderFilter
         page,
         hasMore: count > skip + limit
     };
+}
+
+// Función para obtener entradas de Zotero sin PDF
+function getZoteroEntriesWithoutPDF(limit = 100) {
+    return new Promise((resolve, reject) => {
+        if (!fs.existsSync(ZOTERO_DB)) {
+            resolve([]);
+            return;
+        }
+        
+        const db = new sqlite3.Database(ZOTERO_DB, sqlite3.OPEN_READONLY, (err) => {
+            if (err) {
+                console.error('Error abriendo DB Zotero:', err);
+                resolve([]);
+                return;
+            }
+        });
+        
+        const query = `
+            SELECT 
+                i.itemID,
+                i.dateAdded,
+                i.dateModified,
+                COALESCE(iv_title.value, 'Sin título') as title,
+                COALESCE(iv_date.value, '') as year,
+                COALESCE(iv_url.value, '') as url,
+                it.typeName as type,
+                GROUP_CONCAT(COALESCE(c.firstName || ' ' || c.lastName, ''), ', ') as authors
+            FROM items i
+            LEFT JOIN itemTypes it ON i.itemTypeID = it.itemTypeID
+            LEFT JOIN itemData id_title ON i.itemID = id_title.itemID 
+                AND id_title.fieldID = (SELECT fieldID FROM fields WHERE fieldName = 'title')
+            LEFT JOIN itemDataValues iv_title ON id_title.valueID = iv_title.valueID
+            LEFT JOIN itemData id_date ON i.itemID = id_date.itemID 
+                AND id_date.fieldID = (SELECT fieldID FROM fields WHERE fieldName = 'date')
+            LEFT JOIN itemDataValues iv_date ON id_date.valueID = iv_date.valueID
+            LEFT JOIN itemData id_url ON i.itemID = id_url.itemID 
+                AND id_url.fieldID = (SELECT fieldID FROM fields WHERE fieldName = 'url')
+            LEFT JOIN itemDataValues iv_url ON id_url.valueID = iv_url.valueID
+            LEFT JOIN itemCreators ic ON i.itemID = ic.itemID
+            LEFT JOIN creators c ON ic.creatorID = c.creatorID
+            WHERE i.itemID NOT IN (SELECT itemID FROM deletedItems)
+                AND it.typeName NOT IN ('attachment', 'note', 'annotation')
+                AND it.typeName IS NOT NULL
+                AND i.itemID NOT IN (
+                    SELECT parentItemID FROM itemAttachments 
+                    WHERE contentType = 'application/pdf' 
+                    AND parentItemID IS NOT NULL
+                )
+            GROUP BY i.itemID
+            ORDER BY i.dateAdded DESC
+            LIMIT ?
+        `;
+        
+        db.all(query, [limit], (err, rows) => {
+            db.close();
+            
+            if (err) {
+                console.error('Error consultando DB:', err);
+                resolve([]);
+                return;
+            }
+            
+            resolve(rows || []);
+        });
+    });
+}
+
+// Función para obtener todas las entradas de Zotero (con y sin PDF)
+function getAllZoteroEntries(limit = 1000) {
+    return new Promise((resolve, reject) => {
+        if (!fs.existsSync(ZOTERO_DB)) {
+            resolve([]);
+            return;
+        }
+        
+        const db = new sqlite3.Database(ZOTERO_DB, sqlite3.OPEN_READONLY, (err) => {
+            if (err) {
+                console.error('Error abriendo DB Zotero:', err);
+                resolve([]);
+                return;
+            }
+        });
+        
+        const query = `
+            SELECT 
+                i.itemID,
+                i.dateAdded,
+                i.dateModified,
+                COALESCE(iv_title.value, 'Sin título') as title,
+                COALESCE(iv_date.value, '') as year,
+                COALESCE(iv_url.value, '') as url,
+                it.typeName as type,
+                GROUP_CONCAT(COALESCE(c.firstName || ' ' || c.lastName, ''), ', ') as authors,
+                ia.path as attachmentPath
+            FROM items i
+            LEFT JOIN itemTypes it ON i.itemTypeID = it.itemTypeID
+            LEFT JOIN itemData id_title ON i.itemID = id_title.itemID 
+                AND id_title.fieldID = (SELECT fieldID FROM fields WHERE fieldName = 'title')
+            LEFT JOIN itemDataValues iv_title ON id_title.valueID = iv_title.valueID
+            LEFT JOIN itemData id_date ON i.itemID = id_date.itemID 
+                AND id_date.fieldID = (SELECT fieldID FROM fields WHERE fieldName = 'date')
+            LEFT JOIN itemDataValues iv_date ON id_date.valueID = iv_date.valueID
+            LEFT JOIN itemData id_url ON i.itemID = id_url.itemID 
+                AND id_url.fieldID = (SELECT fieldID FROM fields WHERE fieldName = 'url')
+            LEFT JOIN itemDataValues iv_url ON id_url.valueID = iv_url.valueID
+            LEFT JOIN itemCreators ic ON i.itemID = ic.itemID
+            LEFT JOIN creators c ON ic.creatorID = c.creatorID
+            LEFT JOIN itemAttachments ia ON i.itemID = ia.parentItemID 
+                AND ia.contentType = 'application/pdf'
+            WHERE i.itemID NOT IN (SELECT itemID FROM deletedItems)
+                AND it.typeName NOT IN ('attachment', 'note', 'annotation')
+                AND it.typeName IS NOT NULL
+            GROUP BY i.itemID
+            ORDER BY i.dateAdded DESC
+            LIMIT ?
+        `;
+        
+        db.all(query, [limit], (err, rows) => {
+            db.close();
+            
+            if (err) {
+                console.error('Error consultando DB:', err);
+                resolve([]);
+                return;
+            }
+            
+            // Procesar resultados para añadir flag hasPdf
+            const entries = (rows || []).map(row => ({
+                ...row,
+                hasPdf: row.attachmentPath ? true : false
+            }));
+            
+            resolve(entries);
+        });
+    });
 }
 
 // Búsqueda híbrida optimizada: contenido indexado + nombres de archivo
@@ -485,12 +622,19 @@ function searchInPDFs(query, limit = 50) {
         allPdfs.files.forEach(file => {
             if (searchCount >= limit) return;
             
-            // Nota: Se permiten duplicados para que PDFs puedan aparecer en múltiples carpetas
+            // Evitar duplicados: solo añadir si no está ya en resultados
+            const alreadyAdded = results.some(r => r.path === file.path);
+            if (alreadyAdded) return;
             
             const fileName = path.basename(file.name).toLowerCase();
+            const fileNameNoExt = fileName.replace('.pdf', '');
+            
+            // Buscar coincidencias en el nombre del archivo
             const score = searchTerms.reduce((acc, term) => {
-                const matches = (fileName.match(new RegExp(term, 'g')) || []).length;
-                return acc + matches * 5; // Menor peso que contenido pero mayor que 0
+                // Búsqueda más flexible: buscar términos dentro de palabras
+                const termPattern = term.toLowerCase();
+                const matches = (fileNameNoExt.match(new RegExp(termPattern, 'gi')) || []).length;
+                return acc + matches * 5; // Peso para nombres de archivo
             }, 0);
 
             if (score > 0) {
@@ -782,6 +926,38 @@ app.post('/api/sync', (req, res) => {
     } catch (error) {
         console.error('Error en sincronización:', error);
         res.status(500).json({ error: 'Error iniciando sincronización' });
+    }
+});
+
+// Endpoint para obtener entradas de Zotero sin PDF
+app.get('/api/zotero/no-pdf', async (req, res) => {
+    try {
+        const limit = Math.min(parseInt(req.query.limit) || 100, 500);
+        const entries = await getZoteroEntriesWithoutPDF(limit);
+        res.json({ 
+            entries,
+            total: entries.length
+        });
+    } catch (error) {
+        console.error('Error obteniendo entradas sin PDF:', error);
+        res.status(500).json({ error: 'Error obteniendo entradas sin PDF' });
+    }
+});
+
+// Endpoint para obtener todas las entradas de Zotero
+app.get('/api/zotero/entries', async (req, res) => {
+    try {
+        const limit = Math.min(parseInt(req.query.limit) || 1000, 5000);
+        const entries = await getAllZoteroEntries(limit);
+        res.json({ 
+            entries,
+            total: entries.length,
+            withPdf: entries.filter(e => e.hasPdf).length,
+            withoutPdf: entries.filter(e => !e.hasPdf).length
+        });
+    } catch (error) {
+        console.error('Error obteniendo entradas de Zotero:', error);
+        res.status(500).json({ error: 'Error obteniendo entradas de Zotero' });
     }
 });
 
