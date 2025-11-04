@@ -449,6 +449,36 @@ function getLibraryPDFs(dir = BIBLIOTECA_DIR, page = 1, limit = 50, folderFilter
     };
 }
 
+// Función helper para abrir base de datos SQLite con reintentos cuando está ocupada
+function openDatabaseWithRetry(dbPath, maxRetries = 5, timeout = 1000) {
+    return new Promise((resolve, reject) => {
+        let attempts = 0;
+        
+        function tryOpen() {
+            attempts++;
+            const db = new sqlite3.Database(dbPath, sqlite3.OPEN_READONLY, (err) => {
+                if (err) {
+                    if ((err.code === 'SQLITE_BUSY' || err.code === 'SQLITE_LOCKED') && attempts < maxRetries) {
+                        console.log(`⏳ Base de datos ocupada, reintento ${attempts}/${maxRetries}...`);
+                        db.close();
+                        setTimeout(tryOpen, timeout);
+                    } else {
+                        console.error('Error abriendo DB Zotero:', err);
+                        reject(err);
+                    }
+                    return;
+                }
+                
+                // Configurar timeout y modo busy
+                db.configure('busyTimeout', 5000);
+                resolve(db);
+            });
+        }
+        
+        tryOpen();
+    });
+}
+
 // Función para obtener entradas de Zotero sin PDF
 function getZoteroEntriesWithoutPDF(limit = 100) {
     return new Promise((resolve, reject) => {
@@ -1228,19 +1258,20 @@ app.get('/api/zotero/no-pdf', async (req, res) => {
 
 // Función para obtener el árbol de colecciones
 function getCollectionsTree() {
-    return new Promise((resolve, reject) => {
+    return new Promise(async (resolve, reject) => {
         if (!fs.existsSync(ZOTERO_DB)) {
             resolve([]);
             return;
         }
         
-        const db = new sqlite3.Database(ZOTERO_DB, sqlite3.OPEN_READONLY, (err) => {
-            if (err) {
-                console.error('Error abriendo DB Zotero:', err);
-                resolve([]);
-                return;
-            }
-        });
+        let db;
+        try {
+            db = await openDatabaseWithRetry(ZOTERO_DB);
+        } catch (err) {
+            console.error('Error abriendo DB Zotero después de reintentos:', err);
+            resolve([]);
+            return;
+        }
         
         const query = `
             SELECT 
@@ -1292,19 +1323,20 @@ function getCollectionsTree() {
 
 // Función para obtener items de una colección (incluyendo subcolecciones)
 function getCollectionItems(collectionId, includeSubcollections = true) {
-    return new Promise((resolve, reject) => {
+    return new Promise(async (resolve, reject) => {
         if (!fs.existsSync(ZOTERO_DB)) {
             resolve([]);
             return;
         }
         
-        const db = new sqlite3.Database(ZOTERO_DB, sqlite3.OPEN_READONLY, (err) => {
-            if (err) {
-                console.error('Error abriendo DB Zotero:', err);
-                resolve([]);
-                return;
-            }
-        });
+        let db;
+        try {
+            db = await openDatabaseWithRetry(ZOTERO_DB);
+        } catch (err) {
+            console.error('Error abriendo DB Zotero después de reintentos:', err);
+            resolve([]);
+            return;
+        }
         
         // Primero obtener IDs de colección (incluyendo subcolecciones si es necesario)
         let collectionIds = [collectionId];
@@ -1440,19 +1472,20 @@ app.get('/api/zotero/collections/search', async (req, res) => {
 
 // Función para buscar colecciones por nombre o contenido
 function searchCollectionsByNameOrContent(searchTerm) {
-    return new Promise((resolve, reject) => {
+    return new Promise(async (resolve, reject) => {
         if (!fs.existsSync(ZOTERO_DB)) {
             resolve([]);
             return;
         }
         
-        const db = new sqlite3.Database(ZOTERO_DB, sqlite3.OPEN_READONLY, (err) => {
-            if (err) {
-                console.error('Error abriendo DB Zotero:', err);
-                resolve([]);
-                return;
-            }
-        });
+        let db;
+        try {
+            db = await openDatabaseWithRetry(ZOTERO_DB);
+        } catch (err) {
+            console.error('Error abriendo DB Zotero después de reintentos:', err);
+            resolve([]);
+            return;
+        }
         
         const query = `
             SELECT DISTINCT

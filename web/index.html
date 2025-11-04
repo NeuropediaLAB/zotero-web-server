@@ -6,6 +6,8 @@
     <title>Biblioteca Zotero - NeuropediaLab</title>
     <link rel="icon" type="image/x-icon" href="/favicon.ico">
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
     <style>
         * {
             margin: 0;
@@ -21,14 +23,15 @@
         }
         
         .header {
-            background: #0073aa;
-            color: white;
+            background: rgba(235, 235, 235, 0.98);
+            color: #111;
             padding: 2rem 1.5rem;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.12);
             position: sticky;
             top: 0;
             z-index: 100;
-            border-bottom: 3px solid #005177;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.15);
+            backdrop-filter: blur(10px);
         }
         
         .header-content {
@@ -45,12 +48,14 @@
             font-weight: 700;
             margin-bottom: 0.5rem;
             letter-spacing: -0.5px;
+            color: #111;
         }
         
         .title-area p {
-            opacity: 0.95;
+            opacity: 0.7;
             font-size: 1rem;
             font-weight: 400;
+            color: #111;
         }
         
         .compact-stats {
@@ -63,11 +68,12 @@
             display: flex;
             align-items: center;
             gap: 0.5rem;
-            background: rgba(255,255,255,0.2);
+            background: rgba(0,0,0,0.05);
             padding: 0.75rem 1.25rem;
             border-radius: 4px;
-            border: 1px solid rgba(255,255,255,0.3);
+            border: 1px solid rgba(0,0,0,0.1);
             min-width: 110px;
+            color: #111;
         }
         
         .stat-icon {
@@ -87,9 +93,10 @@
         
         .stat-label {
             font-size: 0.7rem;
-            opacity: 0.8;
+            opacity: 0.7;
             text-transform: uppercase;
             letter-spacing: 0.5px;
+            color: #111;
         }
         
         .sync-status {
@@ -97,7 +104,8 @@
             align-items: center;
             gap: 0.5rem;
             font-size: 0.8rem;
-            opacity: 0.9;
+            opacity: 0.8;
+            color: #111;
         }
         
         .sync-indicator {
@@ -167,7 +175,7 @@
         
         .nav-search:focus {
             outline: none;
-            border-color: #0073aa;
+            border-color: #21759b;
         }
         
         .folder-tree {
@@ -197,7 +205,7 @@
         
         .tree-folder.expanded {
             background-color: #f0f6fc;
-            border-left: 2px solid #0073aa;
+            border-left: 2px solid #21759b;
         }
         
         .tree-icon {
@@ -225,7 +233,7 @@
         }
         
         .file-indexed {
-            color: #0073aa;
+            color: #21759b;
         }
         
         .file-not-indexed {
@@ -249,7 +257,7 @@
         
         .tree-item-content.selected {
             background-color: #f0f6fc;
-            border-left: 3px solid #0073aa;
+            border-left: 3px solid #21759b;
         }
         
         .expand-icon {
@@ -293,8 +301,8 @@
         
         .tab.active {
             background: white;
-            border-bottom-color: #0073aa;
-            color: #0073aa;
+            border-bottom-color: #21759b;
+            color: #21759b;
         }
         
         .search-content {
@@ -320,8 +328,8 @@
         
         .search-input:focus {
             outline: none;
-            border-color: #0073aa;
-            box-shadow: 0 0 0 1px #0073aa;
+            border-color: #21759b;
+            box-shadow: 0 0 0 1px #21759b;
         }
         
         .results {
@@ -333,11 +341,11 @@
             border-radius: 4px;
             padding: 1.25rem;
             margin-bottom: 1rem;
-            border-left: 3px solid #0073aa;
+            border-left: 3px solid #21759b;
             cursor: pointer;
             transition: all 0.2s;
             border: 1px solid #ddd;
-            border-left: 3px solid #0073aa;
+            border-left: 3px solid #21759b;
         }
         
         .result-item:hover {
@@ -402,7 +410,7 @@
         
         .progress-fill {
             height: 100%;
-            background: #0073aa;
+            background: #21759b;
             border-radius: 2px;
             transition: width 0.3s ease;
         }
@@ -417,7 +425,7 @@
             position: fixed;
             bottom: 20px;
             right: 20px;
-            background: #005177;
+            background: #1e6a8d;
             color: white;
             padding: 0.625rem 1.125rem;
             border-radius: 4px;
@@ -442,8 +450,8 @@
         
         button:hover {
             background: #f9f9f9;
-            border-color: #0073aa;
-            color: #0073aa;
+            border-color: #21759b;
+            color: #21759b;
         }
         
         button:active {
@@ -452,13 +460,13 @@
         
         /* Enlaces */
         a {
-            color: #0073aa;
+            color: #21759b;
             text-decoration: none;
             transition: color 0.2s;
         }
         
         a:hover {
-            color: #005177;
+            color: #1e6a8d;
             text-decoration: underline;
         }
         
@@ -470,8 +478,8 @@
             font-size: 0.75rem;
             font-weight: 600;
             background: #f0f6fc;
-            color: #0073aa;
-            border: 1px solid #0073aa;
+            color: #21759b;
+            border: 1px solid #21759b;
         }
         
         .badge.success {
@@ -484,6 +492,24 @@
             background: #fef8ee;
             color: #f0b849;
             border-color: #f0b849;
+        }
+        
+        /* Resaltado de texto encontrado */
+        mark.highlight, mark {
+            background-color: #ffeb3b;
+            padding: 2px 0;
+            font-weight: 600;
+            color: #000;
+        }
+        
+        /* Iconos Font Awesome */
+        .fas, .far, .fab {
+            margin-right: 0.4rem;
+        }
+        
+        .stat-icon i {
+            font-size: 1.2rem;
+            margin-right: 0;
         }
         
         /* Scrollbar personalizado */
@@ -503,7 +529,7 @@
         }
         
         ::-webkit-scrollbar-thumb:hover {
-            background: #0073aa;
+            background: #21759b;
         }
         
         @media (max-width: 768px) {
@@ -549,7 +575,7 @@
     <div class="header">
         <div class="header-content">
             <div class="title-area">
-                <h1>📚 Biblioteca Zotero</h1>
+                <h1><i class="fas fa-book"></i> Biblioteca Zotero</h1>
                 <p>NeuropediaLab - Gestión Inteligente de Documentos</p>
                 <div class="sync-status">
                     <div class="sync-indicator" id="syncIndicator"></div>
@@ -558,7 +584,7 @@
             </div>
             <div class="compact-stats">
                 <div class="stat-mini">
-                    <div class="stat-icon">📄</div>
+                    <div class="stat-icon"><i class="fas fa-file-pdf"></i></div>
                     <div class="stat-content">
                         <div class="stat-number" id="totalPDFs">0</div>
                         <div class="stat-label">PDFs</div>
@@ -585,7 +611,7 @@
     <div class="container">
         <div class="navigation-panel">
             <div class="nav-header">
-                <h3 style="margin: 0 0 0.5rem 0; font-size: 1rem; color: #2c3e50;">📚 Colecciones Zotero</h3>
+                <h3 style="margin: 0 0 0.5rem 0; font-size: 1rem; color: #2c3e50;"><i class="fas fa-book"></i> Colecciones Zotero</h3>
                 <input type="text" id="collectionSearch" class="nav-search" placeholder="🔍 Buscar en colecciones e items...">
             </div>
             <div class="folder-tree" id="collectionTree">
@@ -595,17 +621,17 @@
 
         <div class="main-panel">
             <div class="search-tabs">
-                <div class="tab active" data-tab="database">📚 Base de Datos</div>
-                <div class="tab" data-tab="search">🔍 Buscar en Texto</div>
+                <div class="tab active" data-tab="database"><i class="fas fa-database"></i> Base de Datos</div>
+                <div class="tab" data-tab="search"><i class="fas fa-search"></i> Buscar en Texto</div>
             </div>
 
             <div class="search-content">
                 <div id="databaseTab" class="tab-content">
                     <div class="search-box">
-                        <h3>📚 Base de Datos Zotero</h3>
+                        <h3><i class="fas fa-database"></i> Base de Datos Zotero</h3>
                         <p style="font-size: 0.9rem; color: #7f8c8d;">
                             Navega por tu biblioteca usando el panel izquierdo. Selecciona carpetas para ver PDFs o colecciones para ver items de Zotero.
-                            <br>📄 = Con PDF (click para abrir) | 🔗 = URL disponible | ⚠️ = Sin PDF ni URL
+                            <br><i class="fas fa-file-pdf"></i> = Con PDF (click para abrir) | <i class="fas fa-link"></i> = URL disponible | <i class="fas fa-exclamation-triangle"></i> = Sin PDF ni URL
                         </p>
                     </div>
                     <div id="databaseResults" class="results">
@@ -735,6 +761,23 @@
             div.textContent = text;
             return div.innerHTML;
         }
+        
+        // Función para resaltar texto encontrado
+        function highlightText(text, query) {
+            if (!text || !query) return escapeHtml(text);
+            
+            const escapedText = escapeHtml(text);
+            const words = query.trim().split(/\s+/).filter(w => w.length > 0);
+            
+            let highlightedText = escapedText;
+            words.forEach(word => {
+                const escapedWord = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const regex = new RegExp(`(${escapedWord})`, 'gi');
+                highlightedText = highlightedText.replace(regex, '<mark class="highlight">$1</mark>');
+            });
+            
+            return highlightedText;
+        }
 
         function switchTab(tabName) {
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -778,7 +821,7 @@
                 if (collectionsData.length === 0) {
                     collectionTree.innerHTML = `
                         <div class="no-results">
-                            📚 No se encontraron colecciones
+                            <i class="fas fa-book"></i> No se encontraron colecciones
                         </div>
                     `;
                 } else {
@@ -835,7 +878,7 @@
                 
                 // Nombre de la colección
                 const nameSpan = document.createElement('span');
-                nameSpan.textContent = '📁 ' + collection.name;
+                nameSpan.innerHTML = '<i class="fas fa-folder"></i> ' + collection.name;
                 nameSpan.style.cursor = 'pointer';
                 nameSpan.onclick = (e) => selectCollection(collection.id, collection.name, e.target);
                 contentDiv.appendChild(nameSpan);
@@ -924,7 +967,7 @@
                         : `No se encontraron items en "${collectionName}"`;
                     databaseResults.innerHTML = `
                         <div class="no-results">
-                            📚 ${escapeHtml(noResultsMsg)}
+                            <i class="fas fa-book"></i> ${escapeHtml(noResultsMsg)}
                         </div>
                     `;
                 } else {
@@ -949,16 +992,42 @@
                 const safeAuthors = escapeHtml(item.authors || 'Desconocido');
                 const safeYear = escapeHtml(item.year || 'N/A');
                 const safeType = escapeHtml(item.type || 'documento');
+                const safeUrl = item.url ? escapeHtml(item.url) : '';
                 const hasPdf = item.hasPdf;
                 const pdfPath = item.pdfPath || item.attachmentPath;
                 
-                const icon = hasPdf ? '📄' : '⚠️';
-                const clickAction = hasPdf 
-                    ? `onclick="openPdfFromAttachment('${escapeHtml(pdfPath || '')}')"`
-                    : '';
-                const cursor = hasPdf ? 'pointer' : 'default';
-                const titleColor = hasPdf ? '#3498db' : '#999';
-                const titleDecoration = hasPdf ? 'underline' : 'none';
+                // Determinar icono y acción de click
+                let icon, clickAction, cursor, titleColor, titleDecoration;
+                
+                if (hasPdf) {
+                    icon = '<i class="fas fa-file-pdf"></i>';
+                    clickAction = `onclick="openPdfFromAttachment('${escapeHtml(pdfPath || '')}')"`; 
+                    cursor = 'pointer';
+                    titleColor = '#21759b';
+                    titleDecoration = 'underline';
+                } else if (safeUrl) {
+                    icon = '<i class="fas fa-link"></i>';
+                    clickAction = `onclick="window.open('${safeUrl}', '_blank')"`;
+                    cursor = 'pointer';
+                    titleColor = '#21759b';
+                    titleDecoration = 'underline';
+                } else {
+                    icon = '<i class="fas fa-exclamation-triangle"></i>';
+                    clickAction = '';
+                    cursor = 'default';
+                    titleColor = '#999';
+                    titleDecoration = 'none';
+                }
+                
+                // Estado para mostrar
+                let estadoTexto;
+                if (hasPdf) {
+                    estadoTexto = '✅ Con PDF';
+                } else if (safeUrl) {
+                    estadoTexto = '<i class="fas fa-link"></i> URL disponible';
+                } else {
+                    estadoTexto = '<i class="fas fa-exclamation-triangle"></i> Sin PDF ni URL';
+                }
                 
                 return `
                     <div class="result-item" style="cursor: ${cursor};">
@@ -969,11 +1038,12 @@
                             <strong>Autores:</strong> ${safeAuthors}<br>
                             <strong>Año:</strong> ${safeYear}<br>
                             <strong>Tipo:</strong> ${safeType}
+                            ${safeUrl && !hasPdf ? `<br><strong>URL:</strong> <a href="${safeUrl}" target="_blank" onclick="event.stopPropagation();" style="color: #21759b;">${safeUrl.substring(0, 60)}${safeUrl.length > 60 ? '...' : ''}</a>` : ''}
                         </div>
                         <div class="result-path">
                             🗓️ Añadido: ${new Date(item.dateAdded).toLocaleDateString()} | 
-                            Estado: ${hasPdf ? '✅ Con PDF' : '⚠️ Sin PDF'}
-                            ${pdfPath ? `<br>📁 ${escapeHtml(pdfPath)}` : ''}
+                            Estado: ${estadoTexto}
+                            ${pdfPath ? `<br><i class="fas fa-folder"></i> ${escapeHtml(pdfPath)}` : ''}
                         </div>
                     </div>
                 `;
@@ -991,7 +1061,7 @@
             
             databaseResults.innerHTML = `
                 <div style="margin-bottom: 1.25rem; padding: 1.25rem; background: #f9f9f9; border-radius: 4px; border: 1px solid #ddd;">
-                    <h4 style="margin: 0 0 0.625rem 0; color: #111; font-size: 1.125rem;">📁 ${escapeHtml(collectionName)}</h4>
+                    <h4 style="margin: 0 0 0.625rem 0; color: #111; font-size: 1.125rem;"><i class="fas fa-folder"></i> ${escapeHtml(collectionName)}</h4>
                     <p style="margin: 0; font-size: 0.9375rem; color: #767676;">
                         ${items.length} item${items.length !== 1 ? 's' : ''} 
                         (${stats.withPdf || 0} con PDF, ${items.length - (stats.withPdf || 0)} sin PDF)
@@ -1102,14 +1172,14 @@
                     return `
                         <div class="tree-item" style="margin: 0.3rem 0;">
                             <div class="tree-item-content" onclick="selectCollection(${collection.id}, '${escapeHtml(collection.name)}', event.target)">
-                                📁 ${escapeHtml(collection.name)} ${matchBadge} ${itemCountBadge}
+                                <i class="fas fa-folder"></i> ${escapeHtml(collection.name)} ${matchBadge} ${itemCountBadge}
                             </div>
                         </div>
                     `;
                 }).join('');
                 
                 collectionTree.innerHTML = `
-                    <div style="padding: 1rem; background: #f0f6fc; border-radius: 4px; margin-bottom: 0.625rem; font-size: 0.9375rem; border: 1px solid #0073aa;">
+                    <div style="padding: 1rem; background: #f0f6fc; border-radius: 4px; margin-bottom: 0.625rem; font-size: 0.9375rem; border: 1px solid #21759b;">
                         <strong style="color: #111;">🔍 ${data.collections.length} resultado${data.collections.length !== 1 ? 's' : ''}</strong>
                         <div style="font-size: 0.875rem; color: #767676; margin-top: 0.375rem;">
                             Búsqueda en nombres y contenido de items
@@ -1146,7 +1216,7 @@
                 if (entries.length === 0) {
                     databaseResults.innerHTML = `
                         <div class="no-results">
-                            📚 No se encontraron entradas en la base de datos Zotero
+                            <i class="fas fa-book"></i> No se encontraron entradas en la base de datos Zotero
                         </div>
                     `;
                 } else {
@@ -1176,12 +1246,12 @@
                 const hasPdf = entry.hasPdf;
                 
                 // Determinar el icono y comportamiento
-                const icon = hasPdf ? '📄' : (safeUrl ? '🔗' : '⚠️');
+                const icon = hasPdf ? '<i class="fas fa-file-pdf"></i>' : (safeUrl ? '<i class="fas fa-link"></i>' : '<i class="fas fa-exclamation-triangle"></i>');
                 const clickAction = hasPdf 
                     ? `onclick="openPdfFromAttachment(${JSON.stringify(entry.attachmentPath || '')})"` 
                     : (safeUrl ? `onclick="window.open(${JSON.stringify(safeUrl)}, '_blank')"` : '');
                 const cursor = (hasPdf || safeUrl) ? 'pointer' : 'default';
-                const titleColor = (hasPdf || safeUrl) ? '#3498db' : '#999';
+                const titleColor = (hasPdf || safeUrl) ? '#21759b' : '#999';
                 const titleDecoration = (hasPdf || safeUrl) ? 'underline' : 'none';
                 
                 // Crear el HTML del item
@@ -1203,7 +1273,7 @@
                 `;
                 
                 if (safeUrl && !hasPdf) {
-                    itemHTML += `<br><strong>URL:</strong> <a href="${safeUrl}" target="_blank" onclick="event.stopPropagation();" style="color: #3498db;">${safeUrl.substring(0, 80)}${safeUrl.length > 80 ? '...' : ''}</a>`;
+                    itemHTML += `<br><strong>URL:</strong> <a href="${safeUrl}" target="_blank" onclick="event.stopPropagation();" style="color: #21759b;">${safeUrl.substring(0, 80)}${safeUrl.length > 80 ? '...' : ''}</a>`;
                 }
                 
                 itemHTML += `
@@ -1356,21 +1426,25 @@
                     return;
                 }
                 
-                // Renderizar resultados
+                // Renderizar resultados con resaltado
                 const resultsHTML = data.results.map(result => {
                     const fileName = result.name || result.file || 'Archivo sin nombre';
                     const preview = result.preview || result.context || '';
                     const score = result.score || 0;
                     
+                    // Aplicar resaltado al nombre del archivo y al preview
+                    const highlightedFileName = highlightText(fileName, query);
+                    const highlightedPreview = preview ? highlightText(preview, query) : '';
+                    
                     return `
                         <div class="result-item" onclick="openFile('${escapeHtml(result.path || result.file || '')}')">
                             <div class="result-title">
-                                📄 ${escapeHtml(fileName)}
+                                <i class="fas fa-file-pdf"></i> ${highlightedFileName}
                                 ${result.indexed ? '✅' : '⏳'}
                             </div>
-                            ${preview ? `<div class="result-context">${escapeHtml(preview)}</div>` : ''}
+                            ${highlightedPreview ? `<div class="result-context">${highlightedPreview}</div>` : ''}
                             <div class="result-path">
-                                📁 ${escapeHtml(result.path || '')}
+                                <i class="fas fa-folder"></i> ${escapeHtml(result.path || '')}
                                 ${score > 0 ? ` | Relevancia: ${Math.round(score * 100)}%` : ''}
                             </div>
                         </div>
@@ -1378,8 +1452,8 @@
                 }).join('');
                 
                 elements.searchResults.innerHTML = `
-                    <div style="margin-bottom: 1.25rem; padding: 1rem; background: #f0f6fc; border-radius: 4px; border: 1px solid #0073aa;">
-                        <strong style="color: #111;">🔍 ${data.results.length} resultado${data.results.length !== 1 ? 's' : ''}</strong> para "${escapeHtml(query)}"
+                    <div style="margin-bottom: 1.25rem; padding: 1rem; background: #f0f6fc; border-radius: 4px; border: 1px solid #21759b;">
+                        <strong style="color: #111;"><i class="fas fa-search"></i> ${data.results.length} resultado${data.results.length !== 1 ? 's' : ''}</strong> para "${escapeHtml(query)}"
                     </div>
                     ${resultsHTML}
                 `;
