@@ -57,6 +57,11 @@ let indexingProgress = { current: 0, total: 0 };
 const CACHE_LIMIT = 1000;
 let cacheKeys = [];
 
+// Cache para búsquedas recientes (mejora velocidad)
+const searchCache = new Map();
+const SEARCH_CACHE_LIMIT = 100;
+const SEARCH_CACHE_TTL = 5 * 60 * 1000; // 5 minutos
+
 // Función optimizada para cargar índice
 function loadPDFIndex() {
     try {
@@ -589,82 +594,124 @@ function searchInPDFs(query, limit = 50) {
     const results = [];
     const searchTerms = query.toLowerCase().split(' ').filter(term => term.length > 2);
     
-    // 1. Buscar en contenido indexado
-    let searchCount = 0;
+    // Precompilar expresiones regulares para mejor rendimiento
+    const termPatterns = searchTerms.map(term => {
+        // Escapar caracteres especiales de regex
+        const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        return new RegExp(escaped, 'gi');
+    });
+    
+    // 1. Buscar en contenido indexado (optimizado con early exit)
+    const contentResults = [];
+    const maxContentResults = Math.min(limit * 2, 100); // Limitar búsqueda en contenido
+    
     for (let [filePath, data] of pdfTextIndex) {
-        if (searchCount >= limit) break;
+        if (contentResults.length >= maxContentResults) break;
         
         if (data.text && data.hasText) {
             const textLower = data.text.toLowerCase();
-            const score = searchTerms.reduce((acc, term) => {
-                const matches = (textLower.match(new RegExp(term, 'g')) || []).length;
-                return acc + matches;
-            }, 0);
+            
+            // Búsqueda rápida con includes antes de regex
+            const hasAnyTerm = searchTerms.some(term => textLower.includes(term));
+            if (!hasAnyTerm) continue;
+            
+            // Calcular score solo si tiene algún término
+            let score = 0;
+            for (let pattern of termPatterns) {
+                const matches = textLower.match(pattern);
+                if (matches) score += matches.length;
+            }
 
             if (score > 0) {
-                const snippet = extractSnippet(data.text, searchTerms[0]);
-                results.push({
+                const snippet = extractSnippet(data.text, searchTerms[0], 200); // 200 palabras
+                contentResults.push({
                     file: path.basename(filePath),
                     path: filePath,
+                    name: path.basename(filePath),
                     score: score + 10, // Bonus por contenido indexado
-                    snippet: snippet.substring(0, 200) + '...',
-                    source: 'content'
+                    preview: snippet,
+                    context: snippet,
+                    snippet: snippet,
+                    source: 'content',
+                    indexed: true
                 });
-                searchCount++;
             }
         }
     }
 
-    // 2. Buscar en nombres de archivo (todos los PDFs, indexados o no)
+    // 2. Buscar en nombres de archivo (optimizado con Set para duplicados)
+    const addedPaths = new Set(contentResults.map(r => r.path));
+    const filenameResults = [];
+    
     try {
         const allPdfs = getLibraryPDFs(BIBLIOTECA_DIR, 1, limit * 2);
         
-        allPdfs.files.forEach(file => {
-            if (searchCount >= limit) return;
-            
-            // Evitar duplicados: solo añadir si no está ya en resultados
-            const alreadyAdded = results.some(r => r.path === file.path);
-            if (alreadyAdded) return;
+        for (let file of allPdfs.files) {
+            if (filenameResults.length >= limit) break;
+            if (addedPaths.has(file.path)) continue;
             
             const fileName = path.basename(file.name).toLowerCase();
             const fileNameNoExt = fileName.replace('.pdf', '');
             
-            // Buscar coincidencias en el nombre del archivo
-            const score = searchTerms.reduce((acc, term) => {
-                // Búsqueda más flexible: buscar términos dentro de palabras
-                const termPattern = term.toLowerCase();
-                const matches = (fileNameNoExt.match(new RegExp(termPattern, 'gi')) || []).length;
-                return acc + matches * 5; // Peso para nombres de archivo
-            }, 0);
+            // Búsqueda rápida con includes
+            const hasAnyTerm = searchTerms.some(term => fileNameNoExt.includes(term));
+            if (!hasAnyTerm) continue;
+            
+            // Calcular score si tiene algún término
+            let score = 0;
+            for (let pattern of termPatterns) {
+                const matches = fileNameNoExt.match(pattern);
+                if (matches) score += matches.length * 5; // Peso para nombres de archivo
+            }
 
             if (score > 0) {
-                results.push({
+                filenameResults.push({
                     file: file.name,
                     path: file.path,
+                    name: file.name,
                     score,
+                    preview: `Encontrado en nombre de archivo: "${file.name}"`,
                     snippet: `Encontrado en nombre de archivo: "${file.name}"`,
-                    source: 'filename'
+                    context: `Encontrado en nombre de archivo: "${file.name}"`,
+                    source: 'filename',
+                    indexed: pdfTextIndex.has(file.path)
                 });
-                searchCount++;
             }
-        });
+        }
     } catch (error) {
         console.error('Error buscando en nombres de archivo:', error);
     }
 
-    return results
+    // Combinar y ordenar resultados por score
+    return [...contentResults, ...filenameResults]
         .sort((a, b) => b.score - a.score)
         .slice(0, limit);
 }
 
 // Función para extraer snippet
-function extractSnippet(text, term) {
+function extractSnippet(text, term, words = 200) {
     const termIndex = text.toLowerCase().indexOf(term.toLowerCase());
-    if (termIndex === -1) return text.substring(0, 150);
+    if (termIndex === -1) {
+        // Si no se encuentra el término, devolver las primeras palabras
+        const wordsArray = text.split(/\s+/).slice(0, words);
+        return wordsArray.join(' ') + (text.split(/\s+/).length > words ? '...' : '');
+    }
     
-    const start = Math.max(0, termIndex - 75);
-    const end = Math.min(text.length, termIndex + 75);
-    return text.substring(start, end);
+    // Encontrar el inicio y fin basado en palabras
+    const wordsArray = text.split(/\s+/);
+    const textBeforeTerm = text.substring(0, termIndex);
+    const wordsBefore = textBeforeTerm.split(/\s+/).length;
+    
+    // Tomar 'words/2' palabras antes y después del término
+    const halfWords = Math.floor(words / 2);
+    const startWordIndex = Math.max(0, wordsBefore - halfWords);
+    const endWordIndex = Math.min(wordsArray.length, wordsBefore + halfWords);
+    
+    const snippet = wordsArray.slice(startWordIndex, endWordIndex).join(' ');
+    const prefix = startWordIndex > 0 ? '...' : '';
+    const suffix = endWordIndex < wordsArray.length ? '...' : '';
+    
+    return prefix + snippet + suffix;
 }
 
 // Función para construir árbol de carpetas
@@ -845,16 +892,159 @@ app.get('/api/search', (req, res) => {
             return res.json({ results: [], total: 0 });
         }
 
+        // Crear clave de cache
+        const cacheKey = `${query.toLowerCase()}_${limit}`;
+        
+        // Verificar cache
+        if (searchCache.has(cacheKey)) {
+            const cached = searchCache.get(cacheKey);
+            // Verificar TTL
+            if (Date.now() - cached.timestamp < SEARCH_CACHE_TTL) {
+                console.log('🎯 Búsqueda desde cache:', query);
+                return res.json(cached.data);
+            } else {
+                searchCache.delete(cacheKey);
+            }
+        }
+
         const results = searchInPDFs(query, limit);
-        res.json({ 
+        const response = { 
             results, 
             total: results.length,
             query,
-            limited: results.length === limit
+            limited: results.length === limit,
+            cached: false
+        };
+        
+        // Guardar en cache
+        searchCache.set(cacheKey, {
+            data: { ...response, cached: true },
+            timestamp: Date.now()
         });
+        
+        // Limpiar cache viejo si es muy grande
+        if (searchCache.size > SEARCH_CACHE_LIMIT) {
+            const oldestKey = searchCache.keys().next().value;
+            searchCache.delete(oldestKey);
+        }
+        
+        res.json(response);
     } catch (error) {
         console.error('Error en búsqueda:', error);
         res.status(500).json({ error: 'Error en búsqueda' });
+    }
+});
+
+// API para IA (ChatGPT/GPT Actions) - Búsqueda semántica con contexto completo
+app.post('/api/ai/search', (req, res) => {
+    try {
+        const { query, max_results = 10, include_full_text = false } = req.body;
+        
+        if (!query) {
+            return res.status(400).json({ 
+                error: 'Query parameter is required',
+                usage: 'POST /api/ai/search with body: { "query": "your search term", "max_results": 10, "include_full_text": false }'
+            });
+        }
+
+        const results = searchInPDFs(query, max_results);
+        
+        // Enriquecer resultados para IA
+        const enrichedResults = results.map(result => {
+            const baseResult = {
+                title: result.name || result.file,
+                relevance_score: result.score,
+                context: result.context || result.snippet || result.preview,
+                source_type: result.source,
+                is_indexed: result.indexed || false,
+                file_path: result.path
+            };
+            
+            // Si se solicita texto completo y está indexado, incluirlo
+            if (include_full_text && result.indexed && pdfTextIndex.has(result.path)) {
+                const fullData = pdfTextIndex.get(result.path);
+                baseResult.full_text = fullData.text;
+            }
+            
+            return baseResult;
+        });
+        
+        res.json({
+            query: query,
+            total_results: enrichedResults.length,
+            results: enrichedResults,
+            metadata: {
+                timestamp: new Date().toISOString(),
+                total_indexed_documents: pdfTextIndex.size,
+                search_type: 'semantic'
+            }
+        });
+    } catch (error) {
+        console.error('Error en API de IA:', error);
+        res.status(500).json({ error: 'Internal server error', message: error.message });
+    }
+});
+
+// API para IA - Obtener documento completo por ruta
+app.post('/api/ai/document', (req, res) => {
+    try {
+        const { path: docPath } = req.body;
+        
+        if (!docPath) {
+            return res.status(400).json({ 
+                error: 'Path parameter is required',
+                usage: 'POST /api/ai/document with body: { "path": "/path/to/document.pdf" }'
+            });
+        }
+
+        if (!pdfTextIndex.has(docPath)) {
+            return res.status(404).json({ 
+                error: 'Document not found or not indexed',
+                path: docPath 
+            });
+        }
+        
+        const docData = pdfTextIndex.get(docPath);
+        
+        res.json({
+            path: docPath,
+            filename: path.basename(docPath),
+            indexed_at: docData.indexedAt || 'unknown',
+            text: docData.text,
+            has_text: docData.hasText || false,
+            word_count: docData.text ? docData.text.split(/\s+/).length : 0
+        });
+    } catch (error) {
+        console.error('Error obteniendo documento:', error);
+        res.status(500).json({ error: 'Internal server error', message: error.message });
+    }
+});
+
+// API para IA - Listar documentos indexados
+app.get('/api/ai/documents', (req, res) => {
+    try {
+        const limit = Math.min(parseInt(req.query.limit) || 100, 1000);
+        const offset = parseInt(req.query.offset) || 0;
+        
+        const allDocs = Array.from(pdfTextIndex.entries())
+            .map(([path, data]) => ({
+                path: path,
+                filename: path.split('/').pop(),
+                indexed: data.hasText || false,
+                indexed_at: data.indexedAt || 'unknown',
+                word_count: data.text ? data.text.split(/\s+/).length : 0
+            }))
+            .slice(offset, offset + limit);
+        
+        res.json({
+            total: pdfTextIndex.size,
+            offset: offset,
+            limit: limit,
+            documents: allDocs
+        });
+    } catch (error) {
+        console.error('Error listando documentos:', error);
+        res.status(500).json({ error: 'Internal server error', message: error.message });
     }
 });
 
@@ -872,8 +1062,100 @@ app.get('/api/pdfs', (req, res) => {
     }
 });
 
+// Endpoint para resolver ruta de PDF desde Zotero attachment path
+app.get('/api/resolve-pdf', (req, res) => {
+    try {
+        let attachmentPath = req.query.path;
+        
+        if (!attachmentPath) {
+            return res.status(400).json({ error: 'Path parameter is required' });
+        }
+        
+        console.log('📄 Resolviendo ruta PDF:', attachmentPath);
+        
+        // Manejar formato "storage:KEY/filename.pdf"
+        if (attachmentPath.startsWith('storage:')) {
+            attachmentPath = attachmentPath.substring(8); // Remover "storage:"
+        }
+        
+        // Manejar formato "attachments:KEY/filename.pdf"  
+        if (attachmentPath.startsWith('attachments:')) {
+            attachmentPath = attachmentPath.substring(12); // Remover "attachments:"
+        }
+        
+        // Extraer el nombre del archivo
+        const fileName = path.basename(attachmentPath);
+        
+        // Buscar el archivo en BIBLIOTECA_DIR recursivamente
+        function findFileRecursive(dir, targetFile) {
+            try {
+                const items = fs.readdirSync(dir);
+                
+                for (const item of items) {
+                    const fullPath = path.join(dir, item);
+                    const stats = fs.statSync(fullPath);
+                    
+                    if (stats.isDirectory()) {
+                        const found = findFileRecursive(fullPath, targetFile);
+                        if (found) return found;
+                    } else if (item === targetFile) {
+                        return fullPath;
+                    }
+                }
+            } catch (err) {
+                console.error('Error buscando archivo:', err);
+            }
+            return null;
+        }
+        
+        const foundPath = findFileRecursive(BIBLIOTECA_DIR, fileName);
+        
+        if (foundPath) {
+            // Convertir a ruta relativa para el servidor web
+            const relativePath = path.relative(BIBLIOTECA_DIR, foundPath);
+            console.log('✅ PDF encontrado:', relativePath);
+            
+            res.json({
+                found: true,
+                filename: fileName,
+                relativePath: relativePath,
+                webPath: `/biblioteca/${relativePath}`,
+                originalPath: attachmentPath
+            });
+        } else {
+            console.log('❌ PDF no encontrado:', fileName);
+            res.status(404).json({
+                found: false,
+                filename: fileName,
+                error: 'PDF file not found in biblioteca',
+                originalPath: attachmentPath
+            });
+        }
+    } catch (error) {
+        console.error('Error resolviendo PDF:', error);
+        res.status(500).json({ error: 'Error resolving PDF path', message: error.message });
+    }
+});
+
 // Ruta para servir archivos PDF
 app.get('/pdf/:filename(*)', (req, res) => {
+    try {
+        const filename = req.params.filename;
+        const filePath = path.join(BIBLIOTECA_DIR, filename);
+        
+        if (!fs.existsSync(filePath)) {
+            return res.status(404).json({ error: 'Archivo no encontrado' });
+        }
+        
+        res.sendFile(filePath);
+    } catch (error) {
+        console.error('Error sirviendo PDF:', error);
+        res.status(500).json({ error: 'Error sirviendo archivo' });
+    }
+});
+
+// Ruta alternativa /biblioteca/ para servir archivos PDF
+app.get('/biblioteca/:filename(*)', (req, res) => {
     try {
         const filename = req.params.filename;
         const filePath = path.join(BIBLIOTECA_DIR, filename);
