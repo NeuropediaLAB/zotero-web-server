@@ -2,10 +2,10 @@
   "name": "zotero-web-server",
   "version": "0.3.1",
   "description": "Servidor web avanzado para acceder a tu biblioteca de Zotero con indexación de texto e IA.",
-  "main": "enhanced-server.js",
+  "main": "enhanced-server-memory-optimized.js",
   "scripts": {
-    "start": "node enhanced-server.js",
-    "dev": "nodemon enhanced-server.js",
+    "start": "node enhanced-server-memory-optimized.js",
+    "dev": "nodemon enhanced-server-memory-optimized.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [

@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Biblioteca Zotero - NeuropediaLab</title>
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <style>
         * {
             margin: 0;
@@ -212,6 +214,33 @@
         
         .file-not-indexed {
             color: #95a5a6;
+        }
+        
+        .tree-item-content {
+            display: flex;
+            align-items: center;
+            padding: 0.5rem;
+            border-radius: 6px;
+            cursor: pointer;
+            user-select: none;
+            transition: background-color 0.2s;
+        }
+        
+        .tree-item-content:hover {
+            background-color: #f8f9fa;
+        }
+        
+        .tree-item-content.selected {
+            background-color: #e3f2fd;
+            border-left: 3px solid #3498db;
+        }
+        
+        .expand-icon {
+            display: inline-block;
+            width: 1rem;
+            margin-right: 0.3rem;
+            cursor: pointer;
+            user-select: none;
         }
         
         .main-panel {
@@ -428,31 +457,32 @@
     <div class="container">
         <div class="navigation-panel">
             <div class="nav-header">
-                <input type="text" id="treeSearch" class="nav-search" placeholder="🔍 Filtrar carpetas y archivos...">
+                <h3 style="margin: 0 0 0.5rem 0; font-size: 1rem; color: #2c3e50;">📚 Colecciones Zotero</h3>
+                <input type="text" id="collectionSearch" class="nav-search" placeholder="🔍 Buscar en colecciones e items...">
             </div>
-            <div class="folder-tree" id="folderTree">
-                <div class="loading">Cargando estructura de carpetas...</div>
+            <div class="folder-tree" id="collectionTree">
+                <div class="loading">Cargando colecciones...</div>
             </div>
         </div>
 
         <div class="main-panel">
             <div class="search-tabs">
-                <div class="tab active" data-tab="folders">📁 Navegación</div>
+                <div class="tab active" data-tab="database">📚 Base de Datos</div>
                 <div class="tab" data-tab="search">🔍 Buscar en Texto</div>
-                <div class="tab" data-tab="database">📚 Base de Datos</div>
             </div>
 
             <div class="search-content">
-                <div id="foldersTab" class="tab-content">
+                <div id="databaseTab" class="tab-content">
                     <div class="search-box">
-                        <h3>Navegador de Documentos</h3>
-                        <p>Utiliza el panel de la izquierda para navegar por tu biblioteca de documentos. 
-                           <br>📄 = Archivo PDF | ✅ = Indexado (texto extraído) | ⏳ = No indexado
+                        <h3>📚 Base de Datos Zotero</h3>
+                        <p style="font-size: 0.9rem; color: #7f8c8d;">
+                            Navega por tu biblioteca usando el panel izquierdo. Selecciona carpetas para ver PDFs o colecciones para ver items de Zotero.
+                            <br>📄 = Con PDF (click para abrir) | 🔗 = URL disponible | ⚠️ = Sin PDF ni URL
                         </p>
                     </div>
-                    <div id="folderContent">
+                    <div id="databaseResults" class="results">
                         <div class="no-results">
-                            Selecciona una carpeta o archivo en el panel de navegación
+                            Selecciona una carpeta o colección en el panel de navegación
                         </div>
                     </div>
                 </div>
@@ -473,19 +503,6 @@
                     </div>
                     <div id="searchResults" class="results"></div>
                 </div>
-
-                <div id="databaseTab" class="tab-content" style="display: none;">
-                    <div class="search-box">
-                        <h3>📚 Base de Datos Zotero</h3>
-                        <p style="font-size: 0.9rem; color: #7f8c8d;">
-                            Todas las entradas en tu biblioteca Zotero. 
-                            <br>📄 = Con PDF (click para abrir) | 🔗 = URL disponible (click para abrir) | ⚠️ = Sin PDF ni URL
-                        </p>
-                    </div>
-                    <div id="databaseResults" class="results">
-                        <div class="loading">Cargando entradas de la base de datos...</div>
-                    </div>
-                </div>
             </div>
         </div>
     </div>
@@ -494,7 +511,6 @@
         APIs ocultas disponibles con API Key
     </div>
 
-    <script src="/socket.io/socket.io.js"></script>
     <script>
         // Configuración
         const API_BASE = window.location.origin;
@@ -515,11 +531,9 @@
             totalPDFs: document.getElementById('totalPDFs'),
             indexedPDFs: document.getElementById('indexedPDFs'),
             lastSync: document.getElementById('lastSync'),
-            folderTree: document.getElementById('folderTree'),
-            treeSearch: document.getElementById('treeSearch'),
             textSearch: document.getElementById('textSearch'),
             searchResults: document.getElementById('searchResults'),
-            folderContent: document.getElementById('folderContent'),
+            databaseResults: document.getElementById('databaseResults'),
             indexingProgress: document.getElementById('indexingProgress'),
             progressFill: document.getElementById('progressFill'),
             progressMessage: document.getElementById('progressMessage'),
@@ -586,6 +600,14 @@
             });
         });
 
+        // Función auxiliar para escapar HTML y prevenir XSS
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
         function switchTab(tabName) {
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
             document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
@@ -594,538 +616,390 @@
                 content.style.display = 'none';
             });
             document.getElementById(tabName + 'Tab').style.display = 'block';
-            
-            // Cargar entradas de base de datos cuando se abre esa pestaña
-            if (tabName === 'database') {
-                loadDatabaseEntries();
-            }
         }
+        
+        // Alias para switchTab (para compatibilidad)
+        function showTab(tabName) {
+            switchTab(tabName);
+        }
+        
+        // Cargar todas las entradas de la base de datos Zotero
+        // Funciones para colecciones de Zotero
+        let collectionsData = [];
+        let selectedCollectionId = null;
+        let selectedCollectionName = ''; // Guardar nombre de colección seleccionada
+        let currentSearchTerm = ''; // Mantener el término de búsqueda actual
 
-        // Cargar estructura de carpetas con reintentos
-        async function loadFolderTree() {
+        async function loadCollections() {
+            const collectionTree = document.getElementById('collectionTree');
+            
             try {
-                console.log('🔍 Iniciando carga de estructura...');
+                collectionTree.innerHTML = '<div class="loading">Cargando colecciones...</div>';
                 
-                // Verificar que el elemento DOM existe
-                if (!elements.folderTree) {
-                    console.error('❌ Elemento folderTree no encontrado en DOM');
-                    return;
-                }
-                
-                elements.folderTree.innerHTML = '<div class="loading">Cargando estructura de carpetas...</div>';
-                console.log('📝 Estado inicial establecido');
-                
-                const response = await fetch(`${API_BASE}/api/folder-tree`);
-                console.log(`📡 Respuesta recibida: ${response.status} ${response.ok ? 'OK' : 'ERROR'}`);
+                const response = await fetch(`${API_BASE}/api/zotero/collections`);
                 
                 if (!response.ok) {
                     throw new Error(`Error HTTP: ${response.status}`);
                 }
                 
                 const data = await response.json();
-                console.log('📊 Datos procesados:', {
-                    hasError: !!data.error,
-                    hasRoot: !!data.root,
-                    hasChildren: !!(data.root && data.root.children),
-                    childrenLength: (data.root && data.root.children) ? data.root.children.length : 'N/A'
-                });
+                collectionsData = data.collections || [];
                 
-                if (data.error) {
-                    throw new Error(data.error);
+                console.log('✅ Colecciones cargadas:', collectionsData.length);
+                
+                if (collectionsData.length === 0) {
+                    collectionTree.innerHTML = `
+                        <div class="no-results">
+                            📚 No se encontraron colecciones
+                        </div>
+                    `;
+                } else {
+                    // Solo renderizar las colecciones raíz inicialmente
+                    collectionTree.innerHTML = '';
+                    renderCollections(collectionsData, collectionTree);
+                    console.log('✅ Árbol renderizado');
                 }
-                
-                folderTree = (data.root && data.root.children) || [];
-                console.log(`✅ Estructura cargada: ${folderTree.length} elementos`);
-                
-                renderFolderTree(folderTree);
-                console.log('🎨 Renderizado completado');
-                
-                retryCount = 0;
                 
             } catch (error) {
-                console.error('❌ Error cargando árbol:', error);
-                
-                retryCount++;
-                if (retryCount < MAX_RETRIES) {
-                    console.log(`🔄 Reintentando... (${retryCount}/${MAX_RETRIES})`);
-                    elements.folderTree.innerHTML = `
-                        <div class="error-message">
-                            Error cargando estructura (intento ${retryCount}/${MAX_RETRIES})
-                            <br>Reintentando en ${RETRY_DELAY/1000} segundos...
-                        </div>
-                    `;
-                    setTimeout(loadFolderTree, RETRY_DELAY);
-                } else {
-                    console.error('💀 Máximo de reintentos alcanzado');
-                    elements.folderTree.innerHTML = `
-                        <div class="error-message">
-                            Error cargando estructura de carpetas
-                            <br><button onclick="location.reload()" style="margin-top: 10px;">🔄 Recargar página</button>
-                        </div>
-                    `;
-                }
+                console.error('❌ Error cargando colecciones:', error);
+                collectionTree.innerHTML = `
+                    <div class="error-message">
+                        Error cargando colecciones: ${escapeHtml(error.message)}
+                    </div>
+                `;
             }
         }
 
-        // Renderizar árbol de carpetas
-        function renderFolderTree(tree, container = elements.folderTree, level = 0) {
-            console.log(`🎨 Renderizando árbol - Nivel: ${level}, Elementos: ${tree ? tree.length : 'N/A'}`);
+        function renderCollections(collections, container, level = 0) {
+            if (!collections || collections.length === 0) return;
             
-            if (level === 0) {
-                if (!tree || tree.length === 0) {
-                    console.log('📝 No hay elementos - mostrando mensaje vacío');
-                    container.innerHTML = '<div class="no-results">No hay documentos en la biblioteca</div>';
-                    return;
-                }
-                console.log('🧹 Limpiando contenedor principal');
-                container.innerHTML = '';
-            }
-
-            tree.forEach((item, index) => {
-                console.log(`📁 Procesando item ${index + 1}/${tree.length}: ${item.name} (${item.type})`);
-                
+            const fragment = document.createDocumentFragment();
+            
+            collections.forEach(collection => {
                 const itemDiv = document.createElement('div');
                 itemDiv.className = 'tree-item';
+                itemDiv.style.marginLeft = (level * 1) + 'rem';
                 
-                if (item.type === 'folder') {
-                    itemDiv.innerHTML = `
-                        <div class="tree-folder" data-path="${item.path}">
-                            <span class="tree-icon">📁</span>
-                            ${item.name} <span class="pdf-count">(${item.pdfCount || 0} PDFs)</span>
-                        </div>
-                        <div class="tree-children" data-path="${item.path}"></div>
-                    `;
-                    
-                    const folderEl = itemDiv.querySelector('.tree-folder');
-                    const childrenEl = itemDiv.querySelector('.tree-children');
-                    
-                    folderEl.addEventListener('click', () => {
-                        toggleFolder(folderEl, childrenEl, item.children);
-                        loadFolderFiles(item.path, item.name);
-                    });
+                const hasChildren = collection.children && collection.children.length > 0;
+                
+                const contentDiv = document.createElement('div');
+                contentDiv.className = 'tree-item-content';
+                
+                // Icono de expansión o espacio
+                if (hasChildren) {
+                    const expandSpan = document.createElement('span');
+                    expandSpan.className = 'expand-icon';
+                    expandSpan.textContent = '▶';
+                    expandSpan.style.cursor = 'pointer';
+                    expandSpan.style.marginRight = '0.3rem';
+                    expandSpan.onclick = (e) => {
+                        e.stopPropagation();
+                        toggleCollectionChildren(itemDiv, collection.children, level + 1);
+                        expandSpan.textContent = expandSpan.textContent === '▶' ? '▼' : '▶';
+                    };
+                    contentDiv.appendChild(expandSpan);
                 } else {
-                    const indexedClass = item.indexed ? 'file-indexed' : 'file-not-indexed';
-                    const indexedIcon = item.indexed ? '✅' : '⏳';
-                    
-                    itemDiv.innerHTML = `
-                        <div class="tree-file ${indexedClass}" data-path="${item.path}">
-                            <span class="tree-icon">${indexedIcon}</span>
-                            ${item.name}
-                        </div>
-                    `;
-                    
-                    const fileEl = itemDiv.querySelector('.tree-file');
-                    fileEl.addEventListener('click', () => {
-                        openFile(item.path);
-                    });
+                    const spacer = document.createElement('span');
+                    spacer.style.width = '1.3rem';
+                    spacer.style.display = 'inline-block';
+                    contentDiv.appendChild(spacer);
                 }
                 
-                container.appendChild(itemDiv);
+                // Nombre de la colección
+                const nameSpan = document.createElement('span');
+                nameSpan.textContent = '📁 ' + collection.name;
+                nameSpan.style.cursor = 'pointer';
+                nameSpan.onclick = (e) => selectCollection(collection.id, collection.name, e.target);
+                contentDiv.appendChild(nameSpan);
+                
+                itemDiv.appendChild(contentDiv);
+                fragment.appendChild(itemDiv);
             });
             
-            if (level === 0) {
-                console.log(`✅ Renderizado completo - ${tree.length} elementos en DOM`);
-            }
+            container.appendChild(fragment);
         }
 
-        // Toggle carpeta
-        function toggleFolder(folderEl, childrenEl, children) {
-            const isExpanded = childrenEl.classList.contains('expanded');
+        function toggleCollectionChildren(parentItem, children, level) {
+            // Buscar si ya hay un contenedor de hijos
+            let childrenContainer = parentItem.nextElementSibling;
             
-            if (!isExpanded) {
-                childrenEl.classList.add('expanded');
-                folderEl.classList.add('expanded');
-                folderEl.querySelector('.tree-icon').textContent = '📂';
-                
-                if (children && children.length > 0) {
-                    renderFolderTree(children, childrenEl, 1);
+            if (childrenContainer && childrenContainer.classList.contains('tree-children-container')) {
+                // Ya existe, solo toggle la visibilidad
+                if (childrenContainer.style.display === 'none') {
+                    childrenContainer.style.display = 'block';
+                } else {
+                    childrenContainer.style.display = 'none';
                 }
             } else {
-                childrenEl.classList.remove('expanded');
-                folderEl.classList.remove('expanded');
-                folderEl.querySelector('.tree-icon').textContent = '📁';
+                // No existe, crear y renderizar
+                childrenContainer = document.createElement('div');
+                childrenContainer.className = 'tree-children-container';
+                renderCollections(children, childrenContainer, level);
+                parentItem.parentNode.insertBefore(childrenContainer, parentItem.nextSibling);
             }
         }
 
-        // Cambiar pestaña
-        function showTab(tabName) {
-            // Remover clase activa de todas las pestañas
-            document.querySelectorAll('.tab').forEach(tab => {
-                tab.classList.remove('active');
-            });
-            document.querySelectorAll('.tab-content').forEach(content => {
-                content.style.display = 'none';
-            });
+        async function selectCollection(collectionId, collectionName, eventTarget = null) {
+            console.log('=== selectCollection called ===');
+            console.log('collectionId:', collectionId);
+            console.log('collectionName:', collectionName);
+            console.log('currentSearchTerm:', currentSearchTerm);
             
-            // Activar pestaña seleccionada
-            document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
-            document.getElementById(tabName + 'Tab').style.display = 'block';
+            selectedCollectionId = collectionId;
+            selectedCollectionName = collectionName; // Guardar nombre para recargas
+            const databaseResults = document.getElementById('databaseResults');
             
-            // Cargar entradas de base de datos cuando se abre esa pestaña
-            if (tabName === 'database') {
-                loadDatabaseEntries();
+            // Resaltar la colección seleccionada
+            document.querySelectorAll('.tree-item-content').forEach(item => {
+                item.classList.remove('selected');
+            });
+            if (eventTarget) {
+                const contentDiv = eventTarget.closest('.tree-item-content');
+                if (contentDiv) {
+                    contentDiv.classList.add('selected');
+                }
             }
-        }
-
-        // Cargar archivos de una carpeta
-        async function loadFolderFiles(folderPath, folderName) {
+            
             try {
-                console.log(`📁 Cargando archivos de: ${folderPath}`);
+                const loadingMsg = currentSearchTerm 
+                    ? `Cargando items de "${collectionName}" que coinciden con "${currentSearchTerm}"...`
+                    : `Cargando items de "${collectionName}"...`;
+                databaseResults.innerHTML = `<div class="loading">${escapeHtml(loadingMsg)}</div>`;
                 
-                elements.folderContent.innerHTML = '<div class="loading">🔍 Cargando archivos...</div>';
-                
-                // Cambiar a la pestaña de navegación si no está activa
-                showTab('folders');
-                
-                // Construir la URL con el parámetro de carpeta
-                const url = folderPath ? 
-                    `${API_BASE}/api/pdfs?folder=${encodeURIComponent(folderPath)}&limit=100` : 
-                    `${API_BASE}/api/pdfs?limit=100`;
-                
-                const response = await fetch(url);
+                console.log('Fetching items for collection:', collectionId);
+                const response = await fetch(`${API_BASE}/api/zotero/collections/${collectionId}/items?includeSubcollections=true`);
                 
                 if (!response.ok) {
                     throw new Error(`Error HTTP: ${response.status}`);
                 }
                 
                 const data = await response.json();
-                console.log(`📊 Archivos encontrados: ${data.files.length} de ${data.total}`);
+                console.log('Items received:', data.items ? data.items.length : 0);
+                let items = data.items || [];
                 
-                if (data.files.length === 0) {
-                    elements.folderContent.innerHTML = `
+                // Aplicar filtro de búsqueda si existe
+                if (currentSearchTerm) {
+                    console.log('Applying filter:', currentSearchTerm);
+                    const searchLower = currentSearchTerm.toLowerCase();
+                    items = items.filter(item => {
+                        const titleMatch = item.title && item.title.toLowerCase().includes(searchLower);
+                        const authorsMatch = item.authors && item.authors.toLowerCase().includes(searchLower);
+                        const yearMatch = item.year && item.year.toLowerCase().includes(searchLower);
+                        return titleMatch || authorsMatch || yearMatch;
+                    });
+                    console.log('Items after filter:', items.length);
+                }
+                
+                if (items.length === 0) {
+                    const noResultsMsg = currentSearchTerm
+                        ? `No se encontraron items en "${collectionName}" que coincidan con "${currentSearchTerm}"`
+                        : `No se encontraron items en "${collectionName}"`;
+                    databaseResults.innerHTML = `
                         <div class="no-results">
-                            📁 <strong>${folderName || 'Carpeta seleccionada'}</strong>
-                            <br>No hay archivos PDF en esta carpeta
+                            📚 ${escapeHtml(noResultsMsg)}
+                        </div>
+                    `;
+                } else {
+                    renderCollectionItems(items, collectionName, { ...data, total: items.length, withPdf: items.filter(i => i.hasPdf).length });
+                }
+                
+            } catch (error) {
+                console.error('❌ Error cargando items de colección:', error);
+                databaseResults.innerHTML = `
+                    <div class="error-message">
+                        Error cargando items: ${escapeHtml(error.message)}
+                    </div>
+                `;
+            }
+        }
+
+        function renderCollectionItems(items, collectionName, stats) {
+            const databaseResults = document.getElementById('databaseResults');
+            
+            const itemsHTML = items.map(item => {
+                const safeTitle = escapeHtml(item.title);
+                const safeAuthors = escapeHtml(item.authors || 'Desconocido');
+                const safeYear = escapeHtml(item.year || 'N/A');
+                const safeType = escapeHtml(item.type || 'documento');
+                const hasPdf = item.hasPdf;
+                const pdfPath = item.pdfPath || item.attachmentPath;
+                
+                const icon = hasPdf ? '📄' : '⚠️';
+                const clickAction = hasPdf 
+                    ? `onclick="openPdfFromAttachment('${escapeHtml(pdfPath || '')}')"`
+                    : '';
+                const cursor = hasPdf ? 'pointer' : 'default';
+                const titleColor = hasPdf ? '#3498db' : '#999';
+                const titleDecoration = hasPdf ? 'underline' : 'none';
+                
+                return `
+                    <div class="result-item" style="cursor: ${cursor};">
+                        <div class="result-title" ${clickAction} style="color: ${titleColor}; text-decoration: ${titleDecoration};">
+                            ${icon} ${safeTitle}
+                        </div>
+                        <div class="result-context">
+                            <strong>Autores:</strong> ${safeAuthors}<br>
+                            <strong>Año:</strong> ${safeYear}<br>
+                            <strong>Tipo:</strong> ${safeType}
+                        </div>
+                        <div class="result-path">
+                            🗓️ Añadido: ${new Date(item.dateAdded).toLocaleDateString()} | 
+                            Estado: ${hasPdf ? '✅ Con PDF' : '⚠️ Sin PDF'}
+                            ${pdfPath ? `<br>📁 ${escapeHtml(pdfPath)}` : ''}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+            
+            // Agregar indicador de filtro activo si existe
+            const filterBadge = currentSearchTerm 
+                ? `<div style="margin-top: 0.5rem; padding: 0.5rem; background: #fff3cd; border-left: 3px solid #ffc107; border-radius: 4px;">
+                     🔍 Filtrado por: "<strong>${escapeHtml(currentSearchTerm)}</strong>"
+                     <button onclick="clearSearchFilter()" style="margin-left: 1rem; padding: 0.2rem 0.5rem; cursor: pointer; background: white; border: 1px solid #ffc107; border-radius: 3px;">
+                       ✕ Limpiar filtro
+                     </button>
+                   </div>`
+                : '';
+            
+            databaseResults.innerHTML = `
+                <div style="margin-bottom: 1rem; padding: 1rem; background: #f8f9fa; border-radius: 8px;">
+                    <h4 style="margin: 0 0 0.5rem 0;">📁 ${escapeHtml(collectionName)}</h4>
+                    <p style="margin: 0; font-size: 0.9rem; color: #7f8c8d;">
+                        ${items.length} item${items.length !== 1 ? 's' : ''} 
+                        (${stats.withPdf || 0} con PDF, ${items.length - (stats.withPdf || 0)} sin PDF)
+                    </p>
+                    ${filterBadge}
+                </div>
+                ${itemsHTML}
+            `;
+        }
+        
+        // Función para limpiar el filtro de búsqueda
+        function clearSearchFilter() {
+            currentSearchTerm = '';
+            const searchInput = document.getElementById('collectionSearch');
+            if (searchInput) {
+                searchInput.value = '';
+            }
+            // Recargar la colección actualmente seleccionada sin filtro
+            if (selectedCollectionId) {
+                loadCollections();
+            }
+        }
+
+        // Filtro de búsqueda para colecciones con búsqueda en contenido
+        const collectionSearchInput = document.getElementById('collectionSearch');
+        
+        if (collectionSearchInput) {
+            collectionSearchInput.addEventListener('input', (e) => {
+                clearTimeout(searchTimeout);
+                const searchTerm = e.target.value.trim();
+                
+                // Guardar término de búsqueda actual
+                currentSearchTerm = searchTerm;
+                
+                // Si no hay término de búsqueda, mostrar todo y recargar árbol original
+                if (!searchTerm) {
+                    loadCollections();
+                    // Si hay una colección seleccionada, recargarla sin filtro
+                    if (selectedCollectionId) {
+                        reloadCurrentCollection();
+                    }
+                    return;
+                }
+                
+                // Para términos cortos (1 carácter), solo recargar colección si hay una seleccionada
+                if (searchTerm.length < 2) {
+                    if (selectedCollectionId) {
+                        reloadCurrentCollection();
+                    }
+                    return;
+                }
+                
+                // Debounce para búsqueda en servidor (2+ caracteres)
+                searchTimeout = setTimeout(() => {
+                    // Buscar colecciones que contengan el término
+                    searchCollectionsByContent(searchTerm);
+                }, 300);
+                
+                // Siempre recargar colección actual con el nuevo filtro si hay una seleccionada
+                if (selectedCollectionId) {
+                    searchTimeout = setTimeout(() => {
+                        reloadCurrentCollection();
+                    }, 300);
+                }
+            });
+        }
+        
+        // Función auxiliar para recargar la colección actual
+        async function reloadCurrentCollection() {
+            if (!selectedCollectionId || !selectedCollectionName) return;
+            await selectCollection(selectedCollectionId, selectedCollectionName);
+        }
+        
+        // Función para buscar colecciones por nombre o contenido de items
+        async function searchCollectionsByContent(searchTerm) {
+            const collectionTree = document.getElementById('collectionTree');
+            
+            try {
+                collectionTree.innerHTML = '<div class="loading">🔍 Buscando en colecciones e items...</div>';
+                
+                const response = await fetch(`${API_BASE}/api/zotero/collections/search?q=${encodeURIComponent(searchTerm)}`);
+                
+                if (!response.ok) {
+                    throw new Error(`Error HTTP: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.collections.length === 0) {
+                    collectionTree.innerHTML = `
+                        <div class="no-results" style="padding: 1rem; text-align: center; color: #7f8c8d;">
+                            No se encontraron colecciones ni items con "${escapeHtml(searchTerm)}"
                         </div>
                     `;
                     return;
                 }
                 
-                // Filtrar solo los archivos que están realmente en esta carpeta
-                const folderFiles = folderPath ? 
-                    data.files.filter(file => {
-                        const relativePath = file.path.replace('/app/data/biblioteca/', '');
-                        const fileFolder = relativePath.includes('/') ? 
-                            relativePath.substring(0, relativePath.lastIndexOf('/')) : '';
-                        return fileFolder === folderPath;
-                    }) : data.files;
-                
-                if (folderFiles.length === 0) {
-                    elements.folderContent.innerHTML = `
-                        <div class="no-results">
-                            📁 <strong>${folderName || 'Carpeta seleccionada'}</strong>
-                            <br>No hay archivos PDF directamente en esta carpeta
-                            <br><small>Los archivos pueden estar en subcarpetas</small>
-                        </div>
-                    `;
-                    return;
-                }
-                
-                // Renderizar los archivos
-                const filesHtml = folderFiles.map(file => {
-                    const indexedClass = file.indexed ? 'file-indexed' : 'file-not-indexed';
-                    const indexedIcon = file.indexed ? '✅' : '⏳';
-                    const fileSizeText = file.size > 0 ? 
-                        `(${(file.size / (1024 * 1024)).toFixed(1)} MB)` : '(0 MB)';
+                // Renderizar resultados de búsqueda
+                const resultsHTML = data.collections.map(collection => {
+                    const matchBadge = collection.matchType === 'name' 
+                        ? '<span style="background: #3498db; color: white; padding: 2px 6px; border-radius: 3px; font-size: 0.7rem; margin-left: 0.5rem;">Nombre</span>'
+                        : '<span style="background: #27ae60; color: white; padding: 2px 6px; border-radius: 3px; font-size: 0.7rem; margin-left: 0.5rem;">Contenido</span>';
+                    
+                    const itemCountBadge = collection.itemCount > 0
+                        ? `<span style="color: #7f8c8d; font-size: 0.8rem; margin-left: 0.5rem;">(${collection.itemCount} items)</span>`
+                        : '';
                     
                     return `
-                        <div class="result ${indexedClass}" data-path="${file.path}">
-                            <div class="result-title" onclick="openFile('${file.path.replace('/app/data/biblioteca/', '')}')">
-                                📄 ${file.name} ${indexedIcon}
-                            </div>
-                            <div class="result-path">
-                                📁 ${file.path.replace('/app/data/biblioteca/', '')} ${fileSizeText}
+                        <div class="tree-item" style="margin: 0.3rem 0;">
+                            <div class="tree-item-content" onclick="selectCollection(${collection.id}, '${escapeHtml(collection.name)}', event.target)">
+                                📁 ${escapeHtml(collection.name)} ${matchBadge} ${itemCountBadge}
                             </div>
                         </div>
                     `;
                 }).join('');
                 
-                elements.folderContent.innerHTML = `
-                    <div style="margin-bottom: 1rem; font-size: 0.9rem; color: #7f8c8d;">
-                        📁 <strong>${folderName || 'Carpeta seleccionada'}</strong>
-                        <br>${folderFiles.length} archivo${folderFiles.length !== 1 ? 's' : ''} encontrado${folderFiles.length !== 1 ? 's' : ''}
-                    </div>
-                    ${filesHtml}
-                `;
-                
-            } catch (error) {
-                console.error('❌ Error cargando archivos de carpeta:', error);
-                elements.folderContent.innerHTML = `
-                    <div class="error-message">
-                        Error cargando archivos: ${error.message}
-                        <br><button onclick="loadFolderFiles('${folderPath}', '${folderName}')" style="margin-top: 10px;">🔄 Reintentar</button>
-                    </div>
-                `;
-            }
-        }
-
-        // Abrir archivo
-        async function openFile(filePath) {
-            try {
-                console.log('🔍 Abriendo archivo:', filePath);
-                
-                // Limpiar la ruta del archivo (remover el prefijo del contenedor)
-                const cleanPath = filePath.replace('/app/data/biblioteca/', '');
-                console.log('🔄 Ruta limpia:', cleanPath);
-                
-                // Usar el endpoint /pdf/ en lugar de /biblioteca/
-                const checkResponse = await fetch(`${API_BASE}/pdf/${encodeURIComponent(cleanPath)}`);
-                
-                if (!checkResponse.ok) {
-                    throw new Error(`Error HTTP: ${checkResponse.status}`);
-                }
-                
-                // Verificar el tamaño del archivo
-                const contentLength = parseInt(checkResponse.headers.get('content-length') || '0');
-                if (contentLength > 50 * 1024 * 1024) { // 50MB
-                    // Archivo grande, mostrar modal de confirmación
-                    showLargeFileModal(cleanPath, (contentLength / (1024 * 1024)).toFixed(1));
-                } else {
-                    // Archivo normal, abrir directamente
-                    const url = `${API_BASE}/pdf/${encodeURIComponent(cleanPath)}`;
-                    window.open(url, '_blank');
-                }
-                
-            } catch (error) {
-                console.error('❌ Error abriendo archivo:', error);
-                alert(`Error abriendo archivo: ${error.message}`);
-            }
-        }
-        
-        // Mostrar diálogo para archivos grandes
-        function showLargeFileDialog(filePath, data) {
-            const modal = document.createElement('div');
-            modal.style.cssText = `
-                position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
-                background: rgba(0,0,0,0.7); z-index: 9999; 
-                display: flex; align-items: center; justify-content: center;
-            `;
-            
-            modal.innerHTML = `
-                <div style="background: white; padding: 20px; border-radius: 8px; max-width: 500px; text-align: center;">
-                    <h3>📄 Archivo Grande Detectado</h3>
-                    <p><strong>Tamaño:</strong> ${data.size}</p>
-                    <p>${data.warning || ''}</p>
-                    <div style="margin-top: 20px;">
-                        <button onclick="openFileForced('${filePath}')" style="margin: 5px; padding: 10px 15px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">
-                            🌐 Ver en línea
-                        </button>
-                        <button onclick="downloadFile('${filePath}')" style="margin: 5px; padding: 10px 15px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer;">
-                            📥 Descargar
-                        </button>
-                        <button onclick="this.closest('div[style*=\"position: fixed\"]').remove()" style="margin: 5px; padding: 10px 15px; background: #6c757d; color: white; border: none; border-radius: 4px; cursor: pointer;">
-                            ❌ Cancelar
-                        </button>
-                    </div>
-                </div>
-            `;
-            
-            document.body.appendChild(modal);
-        }
-        
-        // Mostrar diálogo para archivos muy grandes
-        function showVeryLargeFileDialog(filePath, data) {
-            const modal = document.createElement('div');
-            modal.style.cssText = `
-                position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
-                background: rgba(0,0,0,0.7); z-index: 9999; 
-                display: flex; align-items: center; justify-content: center;
-            `;
-            
-            modal.innerHTML = `
-                <div style="background: white; padding: 20px; border-radius: 8px; max-width: 500px; text-align: center;">
-                    <h3>📄 Archivo Muy Grande</h3>
-                    <p><strong>Tamaño:</strong> ${data.size}</p>
-                    <p>${data.message}</p>
-                    <p style="font-style: italic;">${data.recommendation || ''}</p>
-                    <div style="margin-top: 20px;">
-                        <button onclick="downloadFile('${filePath}')" style="margin: 5px; padding: 10px 15px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer;">
-                            📥 Descargar Archivo
-                        </button>
-                        <button onclick="this.closest('div[style*=\"position: fixed\"]').remove()" style="margin: 5px; padding: 10px 15px; background: #6c757d; color: white; border: none; border-radius: 4px; cursor: pointer;">
-                            ❌ Cancelar
-                        </button>
-                    </div>
-                </div>
-            `;
-            
-            document.body.appendChild(modal);
-        }
-        
-        // Mostrar modal para archivos grandes
-        function showLargeFileModal(filePath, sizeMB) {
-            const modal = document.createElement('div');
-            modal.style.cssText = `
-                position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-                background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center;
-                z-index: 10000;
-            `;
-            
-            modal.innerHTML = `
-                <div style="background: white; padding: 20px; border-radius: 8px; max-width: 500px; text-align: center;">
-                    <h3>📄 Archivo Grande Detectado</h3>
-                    <p><strong>Tamaño:</strong> ${sizeMB} MB</p>
-                    <p>Este archivo es grande. ¿Cómo deseas abrirlo?</p>
-                    <div style="margin-top: 20px;">
-                        <button onclick="openFileForced('${filePath}')" style="margin: 5px; padding: 10px 15px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">
-                            🌐 Ver en línea
-                        </button>
-                        <button onclick="downloadFile('${filePath}')" style="margin: 5px; padding: 10px 15px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer;">
-                            📥 Descargar
-                        </button>
-                        <button onclick="this.closest('div[style*=position]').remove()" style="margin: 5px; padding: 10px 15px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer;">
-                            ❌ Cancelar
-                        </button>
-                    </div>
-                </div>
-            `;
-            
-            document.body.appendChild(modal);
-        }
-
-        // Funciones auxiliares para los modales
-        function openFileForced(filePath) {
-            const cleanPath = filePath.replace('/app/data/biblioteca/', '');
-            const url = `${API_BASE}/pdf/${encodeURIComponent(cleanPath)}?force=1`;
-            window.open(url, '_blank');
-            document.querySelector('div[style*="position: fixed"]').remove();
-        }
-        
-        function downloadFile(filePath) {
-            const cleanPath = filePath.replace('/app/data/biblioteca/', '');
-            const url = `${API_BASE}/pdf/${encodeURIComponent(cleanPath)}?download=1`;
-            window.open(url, '_blank');
-            document.querySelector('div[style*="position: fixed"]').remove();
-        }
-
-        // Búsqueda en árbol
-        elements.treeSearch.addEventListener('input', (e) => {
-            const query = e.target.value.toLowerCase();
-            filterTree(query);
-        });
-
-        function filterTree(query) {
-            if (!query) {
-                renderFolderTree(folderTree);
-                return;
-            }
-            
-            const filtered = filterTreeRecursive(folderTree, query);
-            renderFolderTree(filtered);
-        }
-
-        function filterTreeRecursive(tree, query) {
-            return tree.filter(item => {
-                if (item.name.toLowerCase().includes(query)) {
-                    return true;
-                }
-                if (item.type === 'folder' && item.children) {
-                    const filteredChildren = filterTreeRecursive(item.children, query);
-                    if (filteredChildren.length > 0) {
-                        item.children = filteredChildren;
-                        return true;
-                    }
-                }
-                return false;
-            });
-        }
-
-        // Búsqueda en texto
-        elements.textSearch.addEventListener('input', (e) => {
-            clearTimeout(searchTimeout);
-            searchTimeout = setTimeout(() => {
-                performTextSearch(e.target.value);
-            }, 500);
-        });
-
-        async function performTextSearch(query) {
-            if (!query || query.length < 3) {
-                elements.searchResults.innerHTML = '';
-                return;
-            }
-            
-            elements.searchResults.innerHTML = '<div class="loading">🔍 Buscando...</div>';
-            
-            try {
-                // Usar 'q' en lugar de 'query' para compatibilidad
-                const response = await fetch(`${API_BASE}/api/search-text?q=${encodeURIComponent(query)}&limit=50`);
-                
-                if (!response.ok) {
-                    throw new Error(`Error HTTP: ${response.status}`);
-                }
-                
-                const data = await response.json();
-                
-                // Verificar si hay error en la respuesta
-                if (data.error) {
-                    throw new Error(data.error);
-                }
-                
-                if (!data.results || data.results.length === 0) {
-                    elements.searchResults.innerHTML = `
-                        <div class="no-results">
-                            No se encontraron resultados para "<strong>${query}</strong>"
-                            <br><small>Búsqueda en contenido indexado y nombres de archivo</small>
+                collectionTree.innerHTML = `
+                    <div style="padding: 0.8rem; background: #e3f2fd; border-radius: 6px; margin-bottom: 0.5rem; font-size: 0.9rem;">
+                        <strong>🔍 ${data.collections.length} resultado${data.collections.length !== 1 ? 's' : ''}</strong>
+                        <div style="font-size: 0.8rem; color: #7f8c8d; margin-top: 0.3rem;">
+                            Búsqueda en nombres y contenido de items
                         </div>
-                    `;
-                } else {
-                    renderSearchResults(data.results, query);
-                }
+                    </div>
+                    ${resultsHTML}
+                `;
                 
             } catch (error) {
-                console.error('❌ Error en búsqueda:', error);
-                elements.searchResults.innerHTML = `
+                console.error('Error buscando colecciones:', error);
+                collectionTree.innerHTML = `
                     <div class="error-message">
-                        Error en la búsqueda: ${error.message}
+                        Error al buscar: ${escapeHtml(error.message)}
                     </div>
                 `;
             }
         }
 
-        function renderSearchResults(results, query) {
-            const highlightedResults = results.map(result => {
-                // Usar snippet en lugar de context
-                let context = result.snippet || result.context || 'Sin contexto disponible';
-                const regex = new RegExp(`(${escapeRegExp(query)})`, 'gi');
-                context = context.replace(regex, '<mark>$1</mark>');
-                
-                // Hacer path más compatible - remover el directorio base
-                let displayPath = result.path;
-                if (displayPath.includes('/')) {
-                    const pathParts = displayPath.split('/');
-                    displayPath = pathParts.slice(-2).join('/'); // Mostrar últimas 2 partes
-                }
-                
-                return `
-                    <div class="result-item" onclick="openFile('${result.path}')">
-                        <div class="result-title">📄 ${result.file} <small style="color: #666;">(${result.source || 'contenido'})</small></div>
-                        <div class="result-context">${context}</div>
-                        <div class="result-path">📁 ${displayPath}</div>
-                    </div>
-                `;
-            }).join('');
-            
-            elements.searchResults.innerHTML = `
-                <div style="margin-bottom: 1rem; font-size: 0.9rem; color: #7f8c8d;">
-                    Se encontraron ${results.length} resultado${results.length !== 1 ? 's' : ''}
-                </div>
-                ${highlightedResults}
-            `;
-        }
-
-        function escapeRegExp(string) {
-            return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        }
-
-        // Helper function to escape HTML
-        function escapeHtml(text) {
-            if (!text) return '';
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
-
-        // Cargar todas las entradas de la base de datos Zotero
         async function loadDatabaseEntries() {
             const databaseResults = document.getElementById('databaseResults');
             
@@ -1339,8 +1213,102 @@
             
             // Sistema simplificado sin Socket.IO
             initializeStats();
-            loadFolderTree();
+            loadCollections();
             initializeTabs();
+            initializeTextSearch();
+        }
+        
+        // Inicializar búsqueda de texto
+        function initializeTextSearch() {
+            const textSearchInput = document.getElementById('textSearch');
+            if (textSearchInput) {
+                textSearchInput.addEventListener('input', (e) => {
+                    clearTimeout(searchTimeout);
+                    const query = e.target.value.trim();
+                    
+                    if (query.length < 3) {
+                        elements.searchResults.innerHTML = '';
+                        return;
+                    }
+                    
+                    // Debounce: esperar 500ms después de que el usuario deje de escribir
+                    searchTimeout = setTimeout(() => {
+                        performTextSearch(query);
+                    }, 500);
+                });
+            }
+        }
+        
+        // Realizar búsqueda de texto
+        async function performTextSearch(query) {
+            elements.searchResults.innerHTML = '<div class="loading">🔍 Buscando...</div>';
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/search?q=${encodeURIComponent(query)}&limit=50`);
+                
+                if (!response.ok) {
+                    throw new Error(`Error HTTP: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.results.length === 0) {
+                    elements.searchResults.innerHTML = `
+                        <div class="no-results">
+                            No se encontraron resultados para "${escapeHtml(query)}"
+                        </div>
+                    `;
+                    return;
+                }
+                
+                // Renderizar resultados
+                const resultsHTML = data.results.map(result => {
+                    const fileName = result.name || result.file || 'Archivo sin nombre';
+                    const preview = result.preview || result.context || '';
+                    const score = result.score || 0;
+                    
+                    return `
+                        <div class="result-item" onclick="openFile('${escapeHtml(result.path || result.file || '')}')">
+                            <div class="result-title">
+                                📄 ${escapeHtml(fileName)}
+                                ${result.indexed ? '✅' : '⏳'}
+                            </div>
+                            ${preview ? `<div class="result-context">${escapeHtml(preview)}</div>` : ''}
+                            <div class="result-path">
+                                📁 ${escapeHtml(result.path || '')}
+                                ${score > 0 ? ` | Relevancia: ${Math.round(score * 100)}%` : ''}
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+                
+                elements.searchResults.innerHTML = `
+                    <div style="margin-bottom: 1rem; padding: 0.8rem; background: #e3f2fd; border-radius: 8px;">
+                        <strong>🔍 ${data.results.length} resultado${data.results.length !== 1 ? 's' : ''}</strong> para "${escapeHtml(query)}"
+                    </div>
+                    ${resultsHTML}
+                `;
+                
+            } catch (error) {
+                console.error('Error en búsqueda:', error);
+                elements.searchResults.innerHTML = `
+                    <div class="error-message">
+                        Error al realizar la búsqueda: ${escapeHtml(error.message)}
+                    </div>
+                `;
+            }
+        }
+        
+        // Función para abrir archivo
+        function openFile(filePath) {
+            if (!filePath) return;
+            
+            // Limpiar la ruta
+            let cleanPath = filePath.replace('/app/data/biblioteca/', '');
+            
+            // Construir URL para abrir el PDF
+            const pdfUrl = `${API_BASE}/biblioteca/${encodeURIComponent(cleanPath)}`;
+            window.open(pdfUrl, '_blank');
         }
 
         // Inicializar pestañas

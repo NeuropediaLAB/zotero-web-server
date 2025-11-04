@@ -43,13 +43,14 @@ RUN mkdir -p logs web data data/biblioteca data/storage data/cache && \
 USER zotero
 
 # Exponer puerto
-EXPOSE 8080
+EXPOSE 3002
 
 # Variables de entorno por defecto
 ENV NODE_ENV=production
-ENV PORT=8080
+ENV PORT=3002
 ENV BIBLIOTECA_DIR=/app/data/biblioteca
-ENV ZOTERO_DB=/app/data/zotero.sqlite
+ENV STORAGE_DIR=/app/data/zotero/storage
+ENV ZOTERO_DB=/app/data/zotero/zotero.sqlite
 
 # Usar el script de inicio optimizado para memoria
 CMD ["./start-memory-optimized-docker.sh"]

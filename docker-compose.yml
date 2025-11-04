@@ -10,21 +10,22 @@ services:
     restart: unless-stopped
     
     ports:
-      - "8080:8080"
+      - "3002:3002"
     
     environment:
       - NODE_ENV=production
-      - PORT=8080
+      - PORT=3002
       - BIBLIOTECA_DIR=/app/data/biblioteca
-      - ZOTERO_DB=/app/data/zotero.sqlite
+      - STORAGE_DIR=/app/data/zotero/storage
+      - ZOTERO_DB=/app/data/zotero/zotero.sqlite
       - CACHE_DIR=/app/data/cache
       - ZOTERO_API_KEY=${ZOTERO_API_KEY:-zotero-neuropedialab-docker-2024}
     
     volumes:
-      # Montar biblioteca de documentos sincronizada localmente
-      - "./data/biblioteca:/app/data/biblioteca:ro"
-      # Montar base de datos Zotero sincronizada localmente
-      - "./data/zotero.sqlite:/app/data/zotero.sqlite:ro"
+      # Montar biblioteca de documentos desde /home/arkantu/Documentos
+      - "/home/arkantu/Documentos/Zotero Biblioteca:/app/data/biblioteca:ro"
+      # Montar directorio completo de Zotero
+      - "/home/arkantu/Zotero:/app/data/zotero:ro"
       # Directorio de datos persistentes (índices, cache)
       - "zotero-data:/app/data/cache"
       # Logs del contenedor
@@ -39,7 +40,7 @@ services:
     command: ["./start-memory-optimized-docker.sh"]
     
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/api/stats"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3002/api/stats"]
       interval: 30s
       timeout: 10s
       retries: 5

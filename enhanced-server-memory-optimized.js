@@ -944,6 +944,298 @@ app.get('/api/zotero/no-pdf', async (req, res) => {
     }
 });
 
+// Función para obtener el árbol de colecciones
+function getCollectionsTree() {
+    return new Promise((resolve, reject) => {
+        if (!fs.existsSync(ZOTERO_DB)) {
+            resolve([]);
+            return;
+        }
+        
+        const db = new sqlite3.Database(ZOTERO_DB, sqlite3.OPEN_READONLY, (err) => {
+            if (err) {
+                console.error('Error abriendo DB Zotero:', err);
+                resolve([]);
+                return;
+            }
+        });
+        
+        const query = `
+            SELECT 
+                collectionID,
+                collectionName,
+                parentCollectionID
+            FROM collections
+            WHERE collectionID NOT IN (SELECT collectionID FROM deletedCollections)
+            ORDER BY collectionName
+        `;
+        
+        db.all(query, [], (err, rows) => {
+            db.close();
+            
+            if (err) {
+                console.error('Error consultando colecciones:', err);
+                resolve([]);
+                return;
+            }
+            
+            // Construir árbol de colecciones
+            const collectionsMap = new Map();
+            const rootCollections = [];
+            
+            // Primera pasada: crear todos los nodos
+            rows.forEach(row => {
+                collectionsMap.set(row.collectionID, {
+                    id: row.collectionID,
+                    name: row.collectionName,
+                    parentId: row.parentCollectionID,
+                    children: []
+                });
+            });
+            
+            // Segunda pasada: construir jerarquía
+            rows.forEach(row => {
+                const collection = collectionsMap.get(row.collectionID);
+                if (row.parentCollectionID && collectionsMap.has(row.parentCollectionID)) {
+                    collectionsMap.get(row.parentCollectionID).children.push(collection);
+                } else {
+                    rootCollections.push(collection);
+                }
+            });
+            
+            resolve(rootCollections);
+        });
+    });
+}
+
+// Función para obtener items de una colección (incluyendo subcolecciones)
+function getCollectionItems(collectionId, includeSubcollections = true) {
+    return new Promise((resolve, reject) => {
+        if (!fs.existsSync(ZOTERO_DB)) {
+            resolve([]);
+            return;
+        }
+        
+        const db = new sqlite3.Database(ZOTERO_DB, sqlite3.OPEN_READONLY, (err) => {
+            if (err) {
+                console.error('Error abriendo DB Zotero:', err);
+                resolve([]);
+                return;
+            }
+        });
+        
+        // Primero obtener IDs de colección (incluyendo subcolecciones si es necesario)
+        let collectionIds = [collectionId];
+        
+        if (includeSubcollections) {
+            const getSubcollections = (parentId) => {
+                return new Promise((res) => {
+                    db.all(
+                        'SELECT collectionID FROM collections WHERE parentCollectionID = ?',
+                        [parentId],
+                        (err, rows) => {
+                            if (err || !rows) {
+                                res([]);
+                                return;
+                            }
+                            res(rows.map(r => r.collectionID));
+                        }
+                    );
+                });
+            };
+            
+            const getAllSubcollections = async (parentId) => {
+                const direct = await getSubcollections(parentId);
+                let all = [...direct];
+                for (const id of direct) {
+                    const subs = await getAllSubcollections(id);
+                    all = all.concat(subs);
+                }
+                return all;
+            };
+            
+            getAllSubcollections(collectionId).then(subIds => {
+                collectionIds = collectionIds.concat(subIds);
+                fetchItems();
+            });
+        } else {
+            fetchItems();
+        }
+        
+        function fetchItems() {
+            const placeholders = collectionIds.map(() => '?').join(',');
+            const query = `
+                SELECT 
+                    i.itemID,
+                    i.dateAdded,
+                    i.dateModified,
+                    COALESCE(iv_title.value, 'Sin título') as title,
+                    COALESCE(iv_date.value, '') as year,
+                    it.typeName as type,
+                    GROUP_CONCAT(COALESCE(c.firstName || ' ' || c.lastName, ''), ', ') as authors,
+                    ia.path as attachmentPath,
+                    ci.collectionID
+                FROM collectionItems ci
+                JOIN items i ON ci.itemID = i.itemID
+                LEFT JOIN itemTypes it ON i.itemTypeID = it.itemTypeID
+                LEFT JOIN itemData id_title ON i.itemID = id_title.itemID 
+                    AND id_title.fieldID = (SELECT fieldID FROM fields WHERE fieldName = 'title')
+                LEFT JOIN itemDataValues iv_title ON id_title.valueID = iv_title.valueID
+                LEFT JOIN itemData id_date ON i.itemID = id_date.itemID 
+                    AND id_date.fieldID = (SELECT fieldID FROM fields WHERE fieldName = 'date')
+                LEFT JOIN itemDataValues iv_date ON id_date.valueID = iv_date.valueID
+                LEFT JOIN itemCreators ic ON i.itemID = ic.itemID
+                LEFT JOIN creators c ON ic.creatorID = c.creatorID
+                LEFT JOIN itemAttachments ia ON i.itemID = ia.parentItemID 
+                    AND ia.contentType = 'application/pdf'
+                WHERE ci.collectionID IN (${placeholders})
+                    AND i.itemID NOT IN (SELECT itemID FROM deletedItems)
+                    AND it.typeName NOT IN ('attachment', 'note', 'annotation')
+                    AND it.typeName IS NOT NULL
+                GROUP BY i.itemID
+                ORDER BY COALESCE(iv_title.value, 'Sin título')
+            `;
+            
+            db.all(query, collectionIds, (err, rows) => {
+                db.close();
+                
+                if (err) {
+                    console.error('Error consultando items de colección:', err);
+                    resolve([]);
+                    return;
+                }
+                
+                const items = (rows || []).map(row => ({
+                    ...row,
+                    hasPdf: row.attachmentPath ? true : false,
+                    pdfPath: row.attachmentPath || null
+                }));
+                
+                resolve(items);
+            });
+        }
+    });
+}
+
+// Endpoint para obtener árbol de colecciones
+app.get('/api/zotero/collections', async (req, res) => {
+    try {
+        const collections = await getCollectionsTree();
+        res.json({ 
+            collections,
+            total: collections.length
+        });
+    } catch (error) {
+        console.error('Error obteniendo colecciones:', error);
+        res.status(500).json({ error: 'Error obteniendo colecciones' });
+    }
+});
+
+// Endpoint para buscar colecciones por nombre o por contenido de items
+app.get('/api/zotero/collections/search', async (req, res) => {
+    try {
+        const query = req.query.q || '';
+        if (!query || query.trim().length < 2) {
+            res.json({ collections: [], total: 0 });
+            return;
+        }
+        
+        const searchTerm = query.toLowerCase();
+        
+        // Buscar colecciones que coincidan por nombre o que contengan items con ese título
+        const matchingCollections = await searchCollectionsByNameOrContent(searchTerm);
+        
+        res.json({ 
+            collections: matchingCollections,
+            total: matchingCollections.length,
+            query: query
+        });
+    } catch (error) {
+        console.error('Error buscando colecciones:', error);
+        res.status(500).json({ error: 'Error buscando colecciones' });
+    }
+});
+
+// Función para buscar colecciones por nombre o contenido
+function searchCollectionsByNameOrContent(searchTerm) {
+    return new Promise((resolve, reject) => {
+        if (!fs.existsSync(ZOTERO_DB)) {
+            resolve([]);
+            return;
+        }
+        
+        const db = new sqlite3.Database(ZOTERO_DB, sqlite3.OPEN_READONLY, (err) => {
+            if (err) {
+                console.error('Error abriendo DB Zotero:', err);
+                resolve([]);
+                return;
+            }
+        });
+        
+        const query = `
+            SELECT DISTINCT
+                c.collectionID,
+                c.collectionName,
+                c.parentCollectionID,
+                COUNT(DISTINCT i.itemID) as itemCount
+            FROM collections c
+            LEFT JOIN collectionItems ci ON c.collectionID = ci.collectionID
+            LEFT JOIN items i ON ci.itemID = i.itemID
+            LEFT JOIN itemData id_title ON i.itemID = id_title.itemID 
+                AND id_title.fieldID = (SELECT fieldID FROM fields WHERE fieldName = 'title')
+            LEFT JOIN itemDataValues iv_title ON id_title.valueID = iv_title.valueID
+            WHERE c.collectionID NOT IN (SELECT collectionID FROM deletedCollections)
+                AND (
+                    LOWER(c.collectionName) LIKE '%' || ? || '%'
+                    OR LOWER(COALESCE(iv_title.value, '')) LIKE '%' || ? || '%'
+                )
+            GROUP BY c.collectionID
+            ORDER BY 
+                CASE WHEN LOWER(c.collectionName) LIKE '%' || ? || '%' THEN 0 ELSE 1 END,
+                itemCount DESC,
+                c.collectionName
+            LIMIT 50
+        `;
+        
+        db.all(query, [searchTerm, searchTerm, searchTerm], (err, rows) => {
+            db.close();
+            
+            if (err) {
+                console.error('Error buscando colecciones:', err);
+                resolve([]);
+                return;
+            }
+            
+            const results = (rows || []).map(row => ({
+                id: row.collectionID,
+                name: row.collectionName,
+                parentId: row.parentCollectionID,
+                itemCount: row.itemCount,
+                matchType: row.collectionName.toLowerCase().includes(searchTerm) ? 'name' : 'content'
+            }));
+            
+            resolve(results);
+        });
+    });
+}
+
+// Endpoint para obtener items de una colección específica
+app.get('/api/zotero/collections/:id/items', async (req, res) => {
+    try {
+        const collectionId = parseInt(req.params.id);
+        const includeSubcollections = req.query.includeSubcollections !== 'false';
+        const items = await getCollectionItems(collectionId, includeSubcollections);
+        res.json({ 
+            items,
+            total: items.length,
+            withPdf: items.filter(i => i.hasPdf).length
+        });
+    } catch (error) {
+        console.error('Error obteniendo items de colección:', error);
+        res.status(500).json({ error: 'Error obteniendo items de colección' });
+    }
+});
+
 // Endpoint para obtener todas las entradas de Zotero
 app.get('/api/zotero/entries', async (req, res) => {
     try {

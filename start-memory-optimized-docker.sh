@@ -13,7 +13,7 @@ fi
 
 # Configurar variables de entorno optimizadas
 export NODE_ENV=production
-export PORT=8080
+export PORT="${PORT:-8080}"
 
 # Detectar si estamos en Docker
 if [ -f "/.dockerenv" ]; then
