@@ -1,8 +1,24 @@
-# Zotero Web Server v0.3.0
+# Zotero Web Server v0.3.1
 
 Servidor web avanzado para acceder a tu biblioteca de Zotero con indexación de texto e IA.
 
-## 🆕 Nuevo en v0.3.0
+## 🆕 Nuevo en v0.3.1
+- ✅ **Captura de Referencias Web**: Agrega referencias desde cualquier página sin instalar Zotero Connector
+- 📚 **Bookmarklet Integrado**: Marcador especial para capturar referencias con un clic
+- 📝 **Formulario Manual**: Opción alternativa para agregar referencias manualmente
+- 🔄 **Detección Automática**: Extrae automáticamente título, autores, año, DOI y abstract
+- 🎯 **Perfecto para entornos restringidos**: No requiere instalación de software adicional
+
+## 🎯 Características Principales
+
+### 📚 Captura de Referencias Web (¡NUEVO!)
+- **Sin extensiones**: Solo un bookmarklet que arrastras a tu barra de marcadores
+- **Funciona en el trabajo**: No necesitas permisos de instalación
+- **Detección automática**: Captura metadatos de la página automáticamente
+- **Múltiples sitios**: Compatible con journals científicos, Wikipedia, blogs, noticias, etc.
+- [👉 Guía rápida de uso](./QUICK_START_WEB_CAPTURE.md) | [📖 Documentación completa](./CAPTURA_REFERENCIAS_WEB.md)
+
+### v0.3.0
 - ✅ **Persistencia de indexación**: El índice de PDFs se conserva al reiniciar el contenedor
 - 💾 **Volumen persistente**: Docker Compose configurado con volumen `zotero-data` para caché
 - 📁 **Caché inteligente**: Los archivos de índice se almacenan en directorio persistente
@@ -95,6 +111,30 @@ docker ps                            # Ver estado
 - 🐳 **Docker** para fácil despliegue
 - 📱 **Interfaz responsive**
 - 🔒 **Acceso seguro** a archivos
+- 🔗 **Zotero Connector**: Guarda referencias desde navegador sin Zotero Desktop
+- 🦊 **Firefox Portable**: Compatible con navegadores portables sin instalación
+
+## 🔗 Usar Zotero Connector
+
+### Acceso Rápido
+Visita http://localhost:8080/connector-setup.html para instrucciones completas.
+
+### Resumen
+1. **Opción A - Firefox Portable + Zotero Connector:**
+   - Descarga [Firefox Portable](https://portableapps.com/apps/internet/firefox_portable)
+   - Instala [Zotero Connector](https://www.zotero.org/download/connectors)
+   - Configura URL: `http://localhost:8080/connector/` en preferencias avanzadas
+
+2. **Opción B - Bookmarklet (cualquier navegador):**
+   - Arrastra el botón "Guardar en Zotero" desde `/connector-setup.html`
+   - Usa el marcador en cualquier página para guardar referencias
+
+### Endpoints Disponibles
+- `GET /connector/ping` - Verificación de conexión
+- `POST /connector/saveItems` - Guardar referencias bibliográficas
+- `GET /connector/collections` - Listar colecciones
+
+Documentación completa: [ZOTERO_CONNECTOR_SETUP.md](ZOTERO_CONNECTOR_SETUP.md)
 
 ## 🔧 Solución de Problemas
 

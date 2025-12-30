@@ -749,10 +749,359 @@ app.get('/storage-folder/:folderId', async (req, res) => {
     }
 });
 
+// Nuevos endpoints para manejo progresivo de PDFs
+const { createCanvas, loadImage } = require('canvas');
+const pdf2pic = require('pdf2pic');
+
+// Ruta para obtener información del PDF (número de páginas, metadatos)
+app.get('/pdf-info/*', async (req, res) => {
+    try {
+        const pdfPath = req.params[0];
+        let fullPath;
+        
+        // Resolver la ruta del PDF
+        if (pdfPath.startsWith('library/')) {
+            const fileName = decodeURIComponent(pdfPath.replace('library/', ''));
+            fullPath = path.join(ZOTERO_LIBRARY_DIR, fileName);
+        } else if (pdfPath.startsWith('storage/')) {
+            fullPath = path.join(ZOTERO_DATA_DIR, pdfPath);
+        } else {
+            return res.status(400).json({ error: 'Ruta de PDF no válida' });
+        }
+        
+        if (!await fs.pathExists(fullPath)) {
+            return res.status(404).json({ error: 'PDF no encontrado' });
+        }
+        
+        // Usar pdf2pic para obtener información del PDF
+        const convert = pdf2pic.fromPath(fullPath, {
+            density: 100,
+            saveFilename: "temp",
+            savePath: "/tmp",
+            format: "png",
+            width: 200,
+            height: 200
+        });
+        
+        try {
+            // Convertir solo la primera página para obtener info
+            const result = await convert(1, { responseType: "base64" });
+            const stats = await fs.stat(fullPath);
+            
+            // Para obtener el número real de páginas, usaremos pdf-parse
+            const pdfParse = require('pdf-parse');
+            const pdfBuffer = await fs.readFile(fullPath);
+            const pdfData = await pdfParse(pdfBuffer);
+            
+            res.json({
+                path: pdfPath,
+                filename: path.basename(fullPath),
+                size: stats.size,
+                modified: stats.mtime,
+                pages: pdfData.numpages,
+                title: pdfData.info?.Title || path.basename(fullPath, '.pdf'),
+                author: pdfData.info?.Author || null,
+                creationDate: pdfData.info?.CreationDate || null
+            });
+        } catch (pdfError) {
+            console.error('Error procesando PDF:', pdfError);
+            res.status(500).json({ error: 'Error procesando el PDF' });
+        }
+        
+    } catch (error) {
+        console.error('Error obteniendo info del PDF:', error);
+        res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// Ruta para obtener una página específica del PDF como imagen
+app.get('/pdf-page/*/:page', async (req, res) => {
+    try {
+        const pdfPath = req.params[0];
+        const pageNum = parseInt(req.params.page);
+        const quality = req.query.quality || 'medium'; // low, medium, high
+        
+        if (isNaN(pageNum) || pageNum < 1) {
+            return res.status(400).json({ error: 'Número de página inválido' });
+        }
+        
+        let fullPath;
+        
+        // Resolver la ruta del PDF
+        if (pdfPath.startsWith('library/')) {
+            const fileName = decodeURIComponent(pdfPath.replace('library/', ''));
+            fullPath = path.join(ZOTERO_LIBRARY_DIR, fileName);
+        } else if (pdfPath.startsWith('storage/')) {
+            fullPath = path.join(ZOTERO_DATA_DIR, pdfPath);
+        } else {
+            return res.status(400).json({ error: 'Ruta de PDF no válida' });
+        }
+        
+        if (!await fs.pathExists(fullPath)) {
+            return res.status(404).json({ error: 'PDF no encontrado' });
+        }
+        
+        // Configurar calidad según parámetro
+        let density, width;
+        switch (quality) {
+            case 'low':
+                density = 72;
+                width = 600;
+                break;
+            case 'high':
+                density = 200;
+                width = 1200;
+                break;
+            default: // medium
+                density = 150;
+                width = 800;
+                break;
+        }
+        
+        const convert = pdf2pic.fromPath(fullPath, {
+            density: density,
+            saveFilename: `page_${pageNum}_${quality}`,
+            savePath: "/tmp",
+            format: "png",
+            width: width
+        });
+        
+        try {
+            const result = await convert(pageNum, { responseType: "base64" });
+            
+            // Convertir base64 a buffer y enviar como imagen
+            const imageBuffer = Buffer.from(result.base64, 'base64');
+            
+            res.set({
+                'Content-Type': 'image/png',
+                'Cache-Control': 'public, max-age=3600', // Cache por 1 hora
+                'Content-Length': imageBuffer.length
+            });
+            
+            res.send(imageBuffer);
+            
+        } catch (pdfError) {
+            console.error('Error convirtiendo página:', pdfError);
+            res.status(500).json({ error: 'Error procesando la página del PDF' });
+        }
+        
+    } catch (error) {
+        console.error('Error obteniendo página del PDF:', error);
+        res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// Ruta para obtener múltiples páginas de una vez (para precarga)
+app.get('/pdf-pages/*/:startPage/:endPage', async (req, res) => {
+    try {
+        const pdfPath = req.params[0];
+        const startPage = parseInt(req.params.startPage);
+        const endPage = parseInt(req.params.endPage);
+        const quality = req.query.quality || 'medium';
+        
+        if (isNaN(startPage) || isNaN(endPage) || startPage < 1 || endPage < startPage) {
+            return res.status(400).json({ error: 'Rango de páginas inválido' });
+        }
+        
+        if (endPage - startPage > 10) {
+            return res.status(400).json({ error: 'Máximo 10 páginas por solicitud' });
+        }
+        
+        let fullPath;
+        
+        // Resolver la ruta del PDF
+        if (pdfPath.startsWith('library/')) {
+            const fileName = decodeURIComponent(pdfPath.replace('library/', ''));
+            fullPath = path.join(ZOTERO_LIBRARY_DIR, fileName);
+        } else if (pdfPath.startsWith('storage/')) {
+            fullPath = path.join(ZOTERO_DATA_DIR, pdfPath);
+        } else {
+            return res.status(400).json({ error: 'Ruta de PDF no válida' });
+        }
+        
+        if (!await fs.pathExists(fullPath)) {
+            return res.status(404).json({ error: 'PDF no encontrado' });
+        }
+        
+        // Configurar calidad
+        let density, width;
+        switch (quality) {
+            case 'low':
+                density = 72;
+                width = 600;
+                break;
+            case 'high':
+                density = 200;
+                width = 1200;
+                break;
+            default: // medium
+                density = 150;
+                width = 800;
+                break;
+        }
+        
+        const convert = pdf2pic.fromPath(fullPath, {
+            density: density,
+            saveFilename: `batch`,
+            savePath: "/tmp",
+            format: "png",
+            width: width
+        });
+        
+        try {
+            const pages = [];
+            
+            for (let pageNum = startPage; pageNum <= endPage; pageNum++) {
+                try {
+                    const result = await convert(pageNum, { responseType: "base64" });
+                    pages.push({
+                        page: pageNum,
+                        image: `data:image/png;base64,${result.base64}`,
+                        width: result.width,
+                        height: result.height
+                    });
+                } catch (pageError) {
+                    console.error(`Error procesando página ${pageNum}:`, pageError);
+                    pages.push({
+                        page: pageNum,
+                        error: 'Error procesando página'
+                    });
+                }
+            }
+            
+            res.json({
+                path: pdfPath,
+                startPage,
+                endPage,
+                quality,
+                pages
+            });
+            
+        } catch (pdfError) {
+            console.error('Error procesando páginas:', pdfError);
+            res.status(500).json({ error: 'Error procesando las páginas del PDF' });
+        }
+        
+    } catch (error) {
+        console.error('Error obteniendo páginas del PDF:', error);
+        res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// Servir archivos estáticos de la carpeta web
+app.use(express.static(path.join(__dirname, '../web')));
+
+// Ruta específica para el visor de PDF
+app.get('/pdf-viewer', (req, res) => {
+    res.sendFile(path.join(__dirname, '../web/pdf-viewer.html'));
+});
+
+// Endpoint para resolver rutas de PDF de Zotero
+app.get('/api/resolve-pdf', async (req, res) => {
+    try {
+        const attachmentPath = req.query.path;
+        
+        if (!attachmentPath) {
+            return res.status(400).json({ error: 'Parámetro path requerido' });
+        }
+        
+        console.log('🔍 Resolviendo ruta PDF:', attachmentPath);
+        
+        let searchPaths = [];
+        let filename = '';
+        
+        // Determinar posibles ubicaciones basadas en el formato de la ruta
+        if (attachmentPath.startsWith('storage:')) {
+            // Formato Zotero: storage:archivo.pdf
+            filename = attachmentPath.replace('storage:', '');
+            searchPaths = [
+                path.join(ZOTERO_LIBRARY_DIR, filename), // Biblioteca principal
+                path.join(ZOTERO_DATA_DIR, 'storage', filename) // Storage directo
+            ];
+            
+            // También buscar en subdirectorios del storage
+            try {
+                const storageDirs = await fs.readdir(path.join(ZOTERO_DATA_DIR, 'storage'));
+                for (const dir of storageDirs) {
+                    searchPaths.push(path.join(ZOTERO_DATA_DIR, 'storage', dir, filename));
+                }
+            } catch (err) {
+                console.log('No se pudo acceder al directorio storage');
+            }
+        } else if (attachmentPath.includes('/')) {
+            // Ruta con directorio
+            const parts = attachmentPath.split('/');
+            filename = parts[parts.length - 1];
+            
+            searchPaths = [
+                path.join(ZOTERO_DATA_DIR, attachmentPath),
+                path.join(ZOTERO_LIBRARY_DIR, filename),
+                path.join(ZOTERO_DATA_DIR, 'storage', attachmentPath)
+            ];
+        } else {
+            // Solo nombre de archivo
+            filename = attachmentPath;
+            searchPaths = [
+                path.join(ZOTERO_LIBRARY_DIR, filename),
+                path.join(ZOTERO_DATA_DIR, 'storage', filename)
+            ];
+        }
+        
+        // Buscar el archivo en las posibles ubicaciones
+        for (const fullPath of searchPaths) {
+            try {
+                if (await fs.pathExists(fullPath)) {
+                    console.log('✅ PDF encontrado en:', fullPath);
+                    
+                    // Determinar la URL web correspondiente
+                    let webPath;
+                    if (fullPath.startsWith(ZOTERO_LIBRARY_DIR)) {
+                        const relativePath = path.relative(ZOTERO_LIBRARY_DIR, fullPath);
+                        webPath = `/biblioteca/${encodeURIComponent(relativePath)}`;
+                    } else if (fullPath.includes('/storage/')) {
+                        const storageIndex = fullPath.indexOf('/storage/') + '/storage/'.length;
+                        const relativePath = fullPath.substring(storageIndex);
+                        webPath = `/storage/${relativePath}`;
+                    }
+                    
+                    return res.json({
+                        found: true,
+                        filename: filename,
+                        fullPath: fullPath,
+                        webPath: webPath,
+                        originalPath: attachmentPath
+                    });
+                }
+            } catch (err) {
+                // Continuar buscando en otras ubicaciones
+                continue;
+            }
+        }
+        
+        // No se encontró el archivo
+        console.log('❌ PDF no encontrado en ninguna ubicación');
+        res.json({
+            found: false,
+            filename: filename,
+            searchedPaths: searchPaths,
+            originalPath: attachmentPath
+        });
+        
+    } catch (error) {
+        console.error('Error resolviendo ruta PDF:', error);
+        res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// Rutas para servir PDFs directamente (compatibilidad)
+app.use('/biblioteca', express.static(ZOTERO_LIBRARY_DIR));
+app.use('/storage', express.static(path.join(ZOTERO_DATA_DIR, 'storage')));
+
 app.listen(PORT, () => {
     console.log(`🚀 Servidor Zotero API ejecutándose en puerto ${PORT}`);
     console.log(`📚 Directorio de datos: ${ZOTERO_DATA_DIR}`);
     console.log(`📁 Directorio de biblioteca: ${ZOTERO_LIBRARY_DIR}`);
     console.log(`🔄 Sincronización en tiempo real: ACTIVADA`);
+    console.log(`📡 Visor PDF progresivo: ACTIVADO`);
     console.log(`📡 WebSocket para notificaciones: Puerto 3002`);
 });

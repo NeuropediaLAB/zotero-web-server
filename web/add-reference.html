@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agregar Referencias - Biblioteca Zotero</title>
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 2rem;
+        }
+        
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 2rem;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .header p {
+            opacity: 0.9;
+        }
+        
+        .content {
+            padding: 2rem;
+        }
+        
+        .section {
+            margin-bottom: 2.5rem;
+            padding-bottom: 2.5rem;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .section:last-child {
+            border-bottom: none;
+        }
+        
+        .section h2 {
+            font-size: 1.5rem;
+            color: #333;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .bookmarklet-area {
+            background: #f8f9fa;
+            border: 2px dashed #667eea;
+            border-radius: 8px;
+            padding: 2rem;
+            text-align: center;
+        }
+        
+        .bookmarklet-button {
+            display: inline-block;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 1rem 2rem;
+            border-radius: 8px;
+            font-size: 1.1rem;
+            font-weight: bold;
+            text-decoration: none;
+            cursor: move;
+            transition: transform 0.2s, box-shadow 0.2s;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+        
+        .bookmarklet-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(102, 126, 234, 0.6);
+        }
+        
+        .instructions {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 1rem;
+            margin: 1rem 0;
+            border-radius: 4px;
+        }
+        
+        .instructions ol {
+            margin-left: 1.5rem;
+            margin-top: 0.5rem;
+        }
+        
+        .instructions li {
+            margin: 0.5rem 0;
+        }
+        
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+        
+        .form-group label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            color: #333;
+        }
+        
+        .form-group input,
+        .form-group textarea,
+        .form-group select {
+            width: 100%;
+            padding: 0.75rem;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 1rem;
+            transition: border-color 0.2s;
+        }
+        
+        .form-group input:focus,
+        .form-group textarea:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .form-group textarea {
+            min-height: 100px;
+            resize: vertical;
+        }
+        
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 0.875rem 2rem;
+            border-radius: 6px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .alert {
+            padding: 1rem;
+            border-radius: 6px;
+            margin-bottom: 1rem;
+            display: none;
+        }
+        
+        .alert.success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        
+        .alert.error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        
+        .alert.show {
+            display: block;
+        }
+        
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin-top: 1.5rem;
+        }
+        
+        .feature-card {
+            background: #f8f9fa;
+            padding: 1.5rem;
+            border-radius: 8px;
+            text-align: center;
+        }
+        
+        .feature-card i {
+            font-size: 2.5rem;
+            color: #667eea;
+            margin-bottom: 1rem;
+        }
+        
+        .feature-card h3 {
+            font-size: 1.1rem;
+            margin-bottom: 0.5rem;
+            color: #333;
+        }
+        
+        .feature-card p {
+            color: #666;
+            font-size: 0.9rem;
+        }
+        
+        .back-link {
+            display: inline-block;
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 600;
+            margin-bottom: 1rem;
+        }
+        
+        .back-link:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1><i class="fas fa-plus-circle"></i> Agregar Referencias</h1>
+            <p>Captura referencias bibliográficas desde cualquier página web</p>
+        </div>
+        
+        <div class="content">
+            <a href="/" class="back-link"><i class="fas fa-arrow-left"></i> Volver a la biblioteca</a>
+            
+            <!-- Sección 1: Bookmarklet -->
+            <div class="section">
+                <h2><i class="fas fa-bookmark"></i> Método 1: Bookmarklet (Recomendado)</h2>
+                <p style="margin-bottom: 1rem; color: #666;">
+                    Instala este bookmarklet en Chrome siguiendo estos pasos simples.
+                </p>
+                
+                <div class="instructions" style="background: #e3f2fd; border-left-color: #2196f3;">
+                    <strong><i class="fas fa-chrome"></i> Instalación en Chrome (3 pasos):</strong>
+                    <ol style="font-size: 1.1rem; line-height: 1.8;">
+                        <li><strong>Paso 1:</strong> Muestra tu barra de marcadores: <kbd style="background: #f5f5f5; padding: 2px 6px; border-radius: 3px; border: 1px solid #ccc;">Ctrl + Shift + B</kbd></li>
+                        <li><strong>Paso 2:</strong> Haz clic en el botón "Copiar Código" de abajo (el código se copiará automáticamente)</li>
+                        <li><strong>Paso 3:</strong> Sigue las instrucciones que aparecerán después de copiar</li>
+                    </ol>
+                </div>
+                
+                <div style="margin: 2rem 0; text-align: center; padding: 2rem; background: #f8f9fa; border-radius: 8px;">
+                    <button onclick="copyBookmarkletCode()" class="btn" style="cursor: pointer; font-size: 1.2rem; padding: 1rem 2.5rem;">
+                        <i class="fas fa-copy"></i> 📋 Copiar Código del Bookmarklet
+                    </button>
+                    <div id="copyStatus" style="margin-top: 1rem; padding: 1rem; display: none;">
+                        <div style="color: #46b450; font-weight: 600; font-size: 1.1rem; margin-bottom: 1rem;">
+                            ✅ Código copiado al portapapeles
+                        </div>
+                        <div style="background: white; padding: 1.5rem; border-radius: 6px; border: 2px solid #46b450; text-align: left; max-width: 600px; margin: 0 auto;">
+                            <strong style="color: #333; font-size: 1.1rem;">Ahora sigue estos pasos:</strong>
+                            <ol style="margin-top: 1rem; color: #333; line-height: 1.8;">
+                                <li><strong>Clic derecho</strong> en tu <strong>barra de marcadores</strong> (en cualquier espacio vacío)</li>
+                                <li>Selecciona: <strong>"Agregar página"</strong> o <strong>"Añadir página"</strong></li>
+                                <li>En <strong>Nombre</strong> escribe: <code style="background: #f5f5f5; padding: 2px 6px;">Guardar en Zotero</code></li>
+                                <li>En <strong>URL</strong> pega el código: <kbd style="background: #f5f5f5; padding: 2px 6px;">Ctrl + V</kbd></li>
+                                <li>Haz clic en <strong>"Guardar"</strong></li>
+                                <li>✅ ¡Listo! Ya tienes tu bookmarklet instalado</li>
+                            </ol>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="instructions" style="background: #fff9e6; border-left-color: #ffc107; margin-top: 1.5rem;">
+                    <strong><i class="fas fa-lightbulb"></i> Importante:</strong>
+                    <ul style="margin-top: 0.5rem; line-height: 1.8;">
+                        <li>El código es muy largo (~2000 caracteres) - esto es normal</li>
+                        <li>Pégalo completo en el campo URL del marcador</li>
+                        <li>No lo edites, debe quedar tal cual</li>
+                        <li>Si no ves tu barra de marcadores: <kbd style="background: #f5f5f5; padding: 2px 6px;">Ctrl + Shift + B</kbd></li>
+                    </ul>
+                </div>
+                
+                <div class="instructions" style="margin-top: 1.5rem;">
+                    <strong><i class="fas fa-video"></i> Cómo Usar el Bookmarklet:</strong>
+                    <ol>
+                        <li>Navega a cualquier página web que quieras guardar</li>
+                        <li>Haz clic en el bookmarklet "Guardar en Zotero" en tu barra de marcadores</li>
+                        <li>Se abrirá una ventana con los datos detectados automáticamente</li>
+                        <li>Revisa y edita los datos si es necesario</li>
+                        <li>Haz clic en "Guardar en Zotero"</li>
+                        <li>¡Listo! La referencia se guarda en tu biblioteca</li>
+                    </ol>
+                </div>
+                
+                <div style="margin-top: 1.5rem; padding: 1rem; background: #e8f5e9; border-left: 4px solid #4caf50; border-radius: 4px;">
+                    <strong style="color: #2e7d32;"><i class="fas fa-check-circle"></i> Prueba rápida:</strong>
+                    <p style="margin-top: 0.5rem; color: #2e7d32;">
+                        Después de instalar, abre <a href="https://es.wikipedia.org/wiki/Inteligencia_artificial" target="_blank" style="color: #1976d2;">esta página de Wikipedia</a> 
+                        y haz clic en tu bookmarklet para probarlo.
+                    </p>
+                </div>
+                
+                <!-- Código del bookmarklet guardado en un elemento oculto -->
+                <div id="bookmarkletCode" style="display: none;">javascript:(function(){var d=document,w=window,serverUrl=w.location.origin,title=d.querySelector('meta[property="og:title"]')?d.querySelector('meta[property="og:title"]').content:d.querySelector('meta[name="citation_title"]')?d.querySelector('meta[name="citation_title"]').content:d.title,authors=(d.querySelector('meta[name="citation_author"]')?d.querySelector('meta[name="citation_author"]').content:d.querySelector('meta[name="author"]')?d.querySelector('meta[name="author"]').content:''),year=(d.querySelector('meta[name="citation_publication_date"]')?d.querySelector('meta[name="citation_publication_date"]').content.substring(0,4):new Date().getFullYear().toString()),abstract=(d.querySelector('meta[property="og:description"]')?d.querySelector('meta[property="og:description"]').content:d.querySelector('meta[name="description"]')?d.querySelector('meta[name="description"]').content:''),doi=d.querySelector('meta[name="citation_doi"]')?d.querySelector('meta[name="citation_doi"]').content:'',url=w.location.href;var popup=w.open('','zoteroCapture','width=600,height=700,scrollbars=yes');popup.document.write('&lt;html&gt;&lt;head&gt;&lt;title&gt;Guardar en Zotero&lt;/title&gt;&lt;style&gt;body{font-family:sans-serif;padding:20px;background:#f5f5f5}h2{color:#333}.form-group{margin:15px 0}label{display:block;font-weight:600;margin-bottom:5px}input,textarea,select{width:100%;padding:10px;border:2px solid #ddd;border-radius:4px;font-size:14px}textarea{min-height:80px;resize:vertical}.btn{background:#667eea;color:white;border:none;padding:12px 24px;border-radius:6px;font-size:16px;cursor:pointer;margin-right:10px}.btn:hover{background:#5568d3}.btn-cancel{background:#6c757d}.alert{padding:12px;border-radius:4px;margin:10px 0;display:none}.alert.success{background:#d4edda;color:#155724}.alert.error{background:#f8d7da;color:#721c24}&lt;/style&gt;&lt;/head&gt;&lt;body&gt;&lt;h2&gt;📚 Guardar Referencia en Zotero&lt;/h2&gt;&lt;div id="alert" class="alert"&gt;&lt;/div&gt;&lt;form id="refForm"&gt;&lt;div class="form-group"&gt;&lt;label&gt;Título *&lt;/label&gt;&lt;input type="text" id="title" required value="'+title.replace(/'/g,"&apos;")+'"&gt;&lt;/div&gt;&lt;div class="form-group"&gt;&lt;label&gt;Autores&lt;/label&gt;&lt;input type="text" id="authors" value="'+authors.replace(/'/g,"&apos;")+'"&gt;&lt;/div&gt;&lt;div class="form-group"&gt;&lt;label&gt;Año&lt;/label&gt;&lt;input type="text" id="year" value="'+year+'"&gt;&lt;/div&gt;&lt;div class="form-group"&gt;&lt;label&gt;URL *&lt;/label&gt;&lt;input type="text" id="url" required value="'+url+'"&gt;&lt;/div&gt;&lt;div class="form-group"&gt;&lt;label&gt;DOI&lt;/label&gt;&lt;input type="text" id="doi" value="'+doi+'"&gt;&lt;/div&gt;&lt;div class="form-group"&gt;&lt;label&gt;Abstract/Resumen&lt;/label&gt;&lt;textarea id="abstract"&gt;'+abstract.replace(/'/g,"&apos;")+'&lt;/textarea&gt;&lt;/div&gt;&lt;div class="form-group"&gt;&lt;label&gt;Tipo de Documento&lt;/label&gt;&lt;select id="itemType"&gt;&lt;option value="webpage"&gt;Página Web&lt;/option&gt;&lt;option value="journalArticle"&gt;Artículo de Revista&lt;/option&gt;&lt;option value="book"&gt;Libro&lt;/option&gt;&lt;option value="bookSection"&gt;Capítulo de Libro&lt;/option&gt;&lt;option value="conferencePaper"&gt;Artículo de Conferencia&lt;/option&gt;&lt;option value="thesis"&gt;Tesis&lt;/option&gt;&lt;option value="report"&gt;Reporte&lt;/option&gt;&lt;option value="blogPost"&gt;Blog Post&lt;/option&gt;&lt;/select&gt;&lt;/div&gt;&lt;button type="submit" class="btn"&gt;💾 Guardar en Zotero&lt;/button&gt;&lt;button type="button" class="btn btn-cancel" onclick="window.close()"&gt;Cancelar&lt;/button&gt;&lt;/form&gt;&lt;script&gt;document.getElementById("refForm").addEventListener("submit",async function(e){e.preventDefault();var alertDiv=document.getElementById("alert");var btn=e.target.querySelector(".btn");btn.disabled=true;btn.textContent="Guardando...";var data={title:document.getElementById("title").value,authors:document.getElementById("authors").value,year:document.getElementById("year").value,url:document.getElementById("url").value,doi:document.getElementById("doi").value,abstract:document.getElementById("abstract").value,itemType:document.getElementById("itemType").value,dateAdded:new Date().toISOString()};try{var response=await fetch("'+serverUrl+'/api/references/add",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(data)});var result=await response.json();if(response.ok){alertDiv.className="alert success";alertDiv.textContent="✅ "+result.message;alertDiv.style.display="block";setTimeout(function(){window.close()},2000)}else{throw new Error(result.error||"Error desconocido")}}catch(error){alertDiv.className="alert error";alertDiv.textContent="❌ Error: "+error.message;alertDiv.style.display="block";btn.disabled=false;btn.textContent="💾 Guardar en Zotero"}});&lt;\/script&gt;&lt;/body&gt;&lt;/html&gt;')})();</div>
+            </div>
+            
+            <!-- Sección 2: Formulario Manual -->
+            <div class="section">
+                <h2><i class="fas fa-edit"></i> Método 2: Formulario Manual</h2>
+                <p style="margin-bottom: 1rem; color: #666;">
+                    También puedes agregar referencias manualmente usando este formulario.
+                </p>
+                
+                <div id="manualAlert" class="alert"></div>
+                
+                <form id="manualForm">
+                    <div class="form-group">
+                        <label for="manualTitle"><i class="fas fa-heading"></i> Título *</label>
+                        <input type="text" id="manualTitle" required placeholder="Título del documento">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="manualAuthors"><i class="fas fa-user"></i> Autores</label>
+                        <input type="text" id="manualAuthors" placeholder="Autor1, Autor2, etc.">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="manualYear"><i class="fas fa-calendar"></i> Año</label>
+                        <input type="text" id="manualYear" placeholder="2024">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="manualUrl"><i class="fas fa-link"></i> URL *</label>
+                        <input type="url" id="manualUrl" required placeholder="https://ejemplo.com/articulo">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="manualDoi"><i class="fas fa-fingerprint"></i> DOI</label>
+                        <input type="text" id="manualDoi" placeholder="10.1234/ejemplo">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="manualAbstract"><i class="fas fa-align-left"></i> Abstract/Resumen</label>
+                        <textarea id="manualAbstract" placeholder="Resumen del documento..."></textarea>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="manualType"><i class="fas fa-file"></i> Tipo de Documento</label>
+                        <select id="manualType">
+                            <option value="webpage">Página Web</option>
+                            <option value="journalArticle">Artículo de Revista</option>
+                            <option value="book">Libro</option>
+                            <option value="bookSection">Capítulo de Libro</option>
+                            <option value="conferencePaper">Artículo de Conferencia</option>
+                            <option value="thesis">Tesis</option>
+                            <option value="report">Reporte</option>
+                            <option value="blogPost">Blog Post</option>
+                        </select>
+                    </div>
+                    
+                    <button type="submit" class="btn" id="manualSubmitBtn">
+                        <i class="fas fa-save"></i> Guardar Referencia
+                    </button>
+                </form>
+            </div>
+            
+            <!-- Sección 3: Características -->
+            <div class="section">
+                <h2><i class="fas fa-star"></i> Características</h2>
+                <div class="feature-grid">
+                    <div class="feature-card">
+                        <i class="fas fa-magic"></i>
+                        <h3>Detección Automática</h3>
+                        <p>Detecta metadatos automáticamente de la página web</p>
+                    </div>
+                    <div class="feature-card">
+                        <i class="fas fa-edit"></i>
+                        <h3>Edición Flexible</h3>
+                        <p>Revisa y edita todos los campos antes de guardar</p>
+                    </div>
+                    <div class="feature-card">
+                        <i class="fas fa-database"></i>
+                        <h3>Integración Total</h3>
+                        <p>Se guarda directamente en tu base de datos Zotero</p>
+                    </div>
+                    <div class="feature-card">
+                        <i class="fas fa-globe"></i>
+                        <h3>Cualquier Sitio</h3>
+                        <p>Funciona en cualquier página web</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Función para copiar el código del bookmarklet
+        function copyBookmarkletCode() {
+            const codeDiv = document.getElementById('bookmarkletCode');
+            const code = codeDiv.textContent;
+            
+            // Copiar al portapapeles
+            navigator.clipboard.writeText(code).then(() => {
+                // Mostrar mensaje de éxito
+                const status = document.getElementById('copyStatus');
+                status.style.display = 'block';
+                
+                // Scroll suave hacia el mensaje
+                status.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }).catch(err => {
+                alert('Error al copiar: ' + err.message + '\n\nPor favor, intenta con otro navegador o copia manualmente.');
+                console.error('Error al copiar:', err);
+            });
+        }
+        
+        // Formulario manual
+        document.getElementById('manualForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const alertDiv = document.getElementById('manualAlert');
+            const submitBtn = document.getElementById('manualSubmitBtn');
+            
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Guardando...';
+            
+            const data = {
+                title: document.getElementById('manualTitle').value,
+                authors: document.getElementById('manualAuthors').value,
+                year: document.getElementById('manualYear').value,
+                url: document.getElementById('manualUrl').value,
+                doi: document.getElementById('manualDoi').value,
+                abstract: document.getElementById('manualAbstract').value,
+                itemType: document.getElementById('manualType').value,
+                dateAdded: new Date().toISOString()
+            };
+            
+            try {
+                const response = await fetch('/api/references/add', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(data)
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    alertDiv.className = 'alert success show';
+                    alertDiv.innerHTML = `<i class="fas fa-check-circle"></i> ${result.message}`;
+                    
+                    // Limpiar formulario
+                    document.getElementById('manualForm').reset();
+                    
+                    // Ocultar alerta después de 5 segundos
+                    setTimeout(() => {
+                        alertDiv.className = 'alert';
+                    }, 5000);
+                } else {
+                    throw new Error(result.error || 'Error desconocido');
+                }
+            } catch (error) {
+                alertDiv.className = 'alert error show';
+                alertDiv.innerHTML = `<i class="fas fa-exclamation-circle"></i> Error: ${error.message}`;
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '<i class="fas fa-save"></i> Guardar Referencia';
+            }
+        });
+    </script>
+</body>
+</html>

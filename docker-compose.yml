@@ -10,7 +10,7 @@ services:
     restart: unless-stopped
     
     ports:
-      - "3002:3002"
+      - "3302:3002"
     
     environment:
       - NODE_ENV=production
@@ -24,17 +24,21 @@ services:
     volumes:
       # Montar biblioteca de documentos desde /home/arkantu/Documentos
       - "/home/arkantu/Documentos/Zotero Biblioteca:/app/data/biblioteca:ro"
-      # Montar directorio completo de Zotero
-      - "/home/arkantu/Zotero:/app/data/zotero:ro"
+      # Montar directorio completo de Zotero (READ-WRITE para agregar referencias)
+      - "/home/arkantu/Zotero:/app/data/zotero"
       # Directorio de datos persistentes (índices, cache)
       - "zotero-data:/app/data/cache"
       # Logs del contenedor
       - "./logs:/app/logs"
+      # Montar directorio web con nueva funcionalidad (v0.3.1)
+      - "./web:/app/web:ro"
+      # Montar servidor actualizado
+      - "./enhanced-server-memory-optimized.js:/app/enhanced-server-memory-optimized.js:ro"
     
     labels:
       - "com.neuropedialab.service=zotero-web-server"
-      - "com.neuropedialab.version=0.3.0"
-      - "com.neuropedialab.description=Servidor web para biblioteca Zotero con persistencia de indexación"
+      - "com.neuropedialab.version=0.3.1"
+      - "com.neuropedialab.description=Servidor web para biblioteca Zotero con captura de referencias web"
     
     # Usar script optimizado de memoria en lugar del servidor por defecto
     command: ["./start-memory-optimized-docker.sh"]

@@ -456,7 +456,7 @@ function openDatabaseWithRetry(dbPath, maxRetries = 5, timeout = 1000) {
         
         function tryOpen() {
             attempts++;
-            const db = new sqlite3.Database(dbPath, sqlite3.OPEN_READONLY, (err) => {
+            const db = new sqlite3.Database(dbPath, sqlite3.OPEN_READWRITE, (err) => {
                 if (err) {
                     if ((err.code === 'SQLITE_BUSY' || err.code === 'SQLITE_LOCKED') && attempts < maxRetries) {
                         console.log(`⏳ Base de datos ocupada, reintento ${attempts}/${maxRetries}...`);
@@ -1241,6 +1241,263 @@ app.post('/api/sync', (req, res) => {
     }
 });
 
+// ============================================================================
+// ENDPOINTS PARA ZOTERO CONNECTOR
+// ============================================================================
+
+// Endpoint de verificación - Zotero Connector hace ping para verificar conexión
+app.get('/connector/ping', (req, res) => {
+    res.json({
+        prefs: {
+            automaticSnapshots: false
+        },
+        version: "1.0.0"
+    });
+});
+
+// Endpoint principal para guardar referencias desde Zotero Connector
+app.post('/connector/saveItems', async (req, res) => {
+    try {
+        const { items, uri, snapshot } = req.body;
+        
+        if (!items || !Array.isArray(items) || items.length === 0) {
+            return res.status(400).json({ error: 'No items provided' });
+        }
+
+        console.log(`📚 Zotero Connector: Guardando ${items.length} referencia(s)...`);
+
+        if (!fs.existsSync(ZOTERO_DB)) {
+            return res.status(500).json({ error: 'Base de datos Zotero no encontrada' });
+        }
+
+        const db = await openDatabaseWithRetry(ZOTERO_DB);
+        const savedItems = [];
+
+        for (const item of items) {
+            try {
+                // Generar key única para el item
+                const itemKey = generateZoteroKey();
+                const dateAdded = new Date().toISOString().replace('T', ' ').substring(0, 19);
+                const dateModified = dateAdded;
+
+                // Mapear tipo de Zotero a typeID
+                const itemTypeID = await getItemTypeID(db, item.itemType || 'webpage');
+
+                // Insertar item principal
+                const insertItem = `
+                    INSERT INTO items (itemTypeID, dateAdded, dateModified, key, version)
+                    VALUES (?, ?, ?, ?, 0)
+                `;
+                
+                const result = await new Promise((resolve, reject) => {
+                    db.run(insertItem, [itemTypeID, dateAdded, dateModified, itemKey], function(err) {
+                        if (err) reject(err);
+                        else resolve(this.lastID);
+                    });
+                });
+
+                const itemID = result;
+
+                // Insertar campos del item
+                const fieldMappings = {
+                    title: 'title',
+                    abstractNote: 'abstractNote',
+                    url: 'url',
+                    accessDate: 'accessDate',
+                    date: 'date',
+                    DOI: 'DOI',
+                    publicationTitle: 'publicationTitle',
+                    volume: 'volume',
+                    issue: 'issue',
+                    pages: 'pages',
+                    publisher: 'publisher',
+                    place: 'place',
+                    language: 'language',
+                    ISSN: 'ISSN',
+                    extra: 'extra'
+                };
+
+                for (const [fieldName, zoteroField] of Object.entries(fieldMappings)) {
+                    if (item[fieldName]) {
+                        const fieldID = await getFieldID(db, zoteroField);
+                        if (fieldID) {
+                            await new Promise((resolve, reject) => {
+                                db.run(
+                                    'INSERT INTO itemData (itemID, fieldID, valueID) VALUES (?, ?, (SELECT valueID FROM itemDataValues WHERE value = ? UNION SELECT COALESCE(MAX(valueID), 0) + 1 FROM itemDataValues WHERE NOT EXISTS (SELECT 1 FROM itemDataValues WHERE value = ?)))',
+                                    [itemID, fieldID, item[fieldName], item[fieldName]],
+                                    (err) => err ? reject(err) : resolve()
+                                );
+                            });
+
+                            // Asegurar que el valor existe en itemDataValues
+                            await new Promise((resolve, reject) => {
+                                db.run(
+                                    'INSERT OR IGNORE INTO itemDataValues (value) VALUES (?)',
+                                    [item[fieldName]],
+                                    (err) => err ? reject(err) : resolve()
+                                );
+                            });
+                        }
+                    }
+                }
+
+                // Insertar autores si existen
+                if (item.creators && Array.isArray(item.creators)) {
+                    for (let i = 0; i < item.creators.length; i++) {
+                        const creator = item.creators[i];
+                        const creatorTypeID = await getCreatorTypeID(db, creator.creatorType || 'author');
+                        
+                        // Insertar o obtener creatorID
+                        let creatorID = await new Promise((resolve, reject) => {
+                            const firstName = creator.firstName || '';
+                            const lastName = creator.lastName || creator.name || '';
+                            
+                            db.get(
+                                'SELECT creatorID FROM creators WHERE firstName = ? AND lastName = ?',
+                                [firstName, lastName],
+                                (err, row) => {
+                                    if (err) reject(err);
+                                    else if (row) resolve(row.creatorID);
+                                    else {
+                                        db.run(
+                                            'INSERT INTO creators (firstName, lastName, key) VALUES (?, ?, ?)',
+                                            [firstName, lastName, generateZoteroKey()],
+                                            function(err) {
+                                                if (err) reject(err);
+                                                else resolve(this.lastID);
+                                            }
+                                        );
+                                    }
+                                }
+                            );
+                        });
+
+                        // Vincular creador con item
+                        await new Promise((resolve, reject) => {
+                            db.run(
+                                'INSERT INTO itemCreators (itemID, creatorID, creatorTypeID, orderIndex) VALUES (?, ?, ?, ?)',
+                                [itemID, creatorID, creatorTypeID, i],
+                                (err) => err ? reject(err) : resolve()
+                            );
+                        });
+                    }
+                }
+
+                // Insertar tags si existen
+                if (item.tags && Array.isArray(item.tags)) {
+                    for (const tag of item.tags) {
+                        const tagName = typeof tag === 'string' ? tag : tag.tag;
+                        if (tagName) {
+                            let tagID = await new Promise((resolve, reject) => {
+                                db.get('SELECT tagID FROM tags WHERE name = ?', [tagName], (err, row) => {
+                                    if (err) reject(err);
+                                    else if (row) resolve(row.tagID);
+                                    else {
+                                        db.run('INSERT INTO tags (name, key) VALUES (?, ?)', 
+                                            [tagName, generateZoteroKey()], 
+                                            function(err) {
+                                                if (err) reject(err);
+                                                else resolve(this.lastID);
+                                            }
+                                        );
+                                    }
+                                });
+                            });
+
+                            await new Promise((resolve, reject) => {
+                                db.run(
+                                    'INSERT INTO itemTags (itemID, tagID) VALUES (?, ?)',
+                                    [itemID, tagID],
+                                    (err) => err ? reject(err) : resolve()
+                                );
+                            });
+                        }
+                    }
+                }
+
+                savedItems.push({
+                    itemID: itemID,
+                    key: itemKey,
+                    title: item.title
+                });
+
+                console.log(`✅ Guardada referencia: ${item.title || 'Sin título'} (ID: ${itemID})`);
+
+            } catch (itemError) {
+                console.error(`❌ Error guardando item:`, itemError);
+            }
+        }
+
+        db.close();
+
+        // Emitir evento para actualizar estadísticas
+        syncEmitter.emit('sync-needed');
+
+        res.json({
+            success: true,
+            items: savedItems,
+            count: savedItems.length
+        });
+
+    } catch (error) {
+        console.error('❌ Error en /connector/saveItems:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Endpoint para obtener colecciones (usado por Zotero Connector)
+app.get('/connector/collections', async (req, res) => {
+    try {
+        const collections = await getCollectionsTree();
+        res.json(collections || []);
+    } catch (error) {
+        console.error('Error obteniendo colecciones:', error);
+        res.status(500).json({ error: 'Error obteniendo colecciones' });
+    }
+});
+
+// Funciones auxiliares para Zotero Connector
+
+function generateZoteroKey() {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let key = '';
+    for (let i = 0; i < 8; i++) {
+        key += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return key;
+}
+
+async function getItemTypeID(db, itemType) {
+    return new Promise((resolve, reject) => {
+        db.get('SELECT itemTypeID FROM itemTypes WHERE typeName = ?', [itemType], (err, row) => {
+            if (err) reject(err);
+            else resolve(row ? row.itemTypeID : 13); // Default a 'webpage'
+        });
+    });
+}
+
+async function getFieldID(db, fieldName) {
+    return new Promise((resolve, reject) => {
+        db.get('SELECT fieldID FROM fields WHERE fieldName = ?', [fieldName], (err, row) => {
+            if (err) reject(err);
+            else resolve(row ? row.fieldID : null);
+        });
+    });
+}
+
+async function getCreatorTypeID(db, creatorType) {
+    return new Promise((resolve, reject) => {
+        db.get('SELECT creatorTypeID FROM creatorTypes WHERE creatorType = ?', [creatorType], (err, row) => {
+            if (err) reject(err);
+            else resolve(row ? row.creatorTypeID : 1); // Default a 'author'
+        });
+    });
+}
+
+// ============================================================================
+// FIN ENDPOINTS ZOTERO CONNECTOR
+// ============================================================================
+
 // Endpoint para obtener entradas de Zotero sin PDF
 app.get('/api/zotero/no-pdf', async (req, res) => {
     try {
@@ -1283,41 +1540,50 @@ function getCollectionsTree() {
             ORDER BY collectionName
         `;
         
-        db.all(query, [], (err, rows) => {
-            db.close();
-            
-            if (err) {
-                console.error('Error consultando colecciones:', err);
-                resolve([]);
-                return;
-            }
-            
-            // Construir árbol de colecciones
-            const collectionsMap = new Map();
-            const rootCollections = [];
-            
-            // Primera pasada: crear todos los nodos
-            rows.forEach(row => {
-                collectionsMap.set(row.collectionID, {
-                    id: row.collectionID,
-                    name: row.collectionName,
-                    parentId: row.parentCollectionID,
-                    children: []
-                });
-            });
-            
-            // Segunda pasada: construir jerarquía
-            rows.forEach(row => {
-                const collection = collectionsMap.get(row.collectionID);
-                if (row.parentCollectionID && collectionsMap.has(row.parentCollectionID)) {
-                    collectionsMap.get(row.parentCollectionID).children.push(collection);
-                } else {
-                    rootCollections.push(collection);
+        const executeQueryWithRetry = (attempt = 1) => {
+            db.all(query, [], (err, rows) => {
+                if (err) {
+                    if ((err.code === 'SQLITE_BUSY' || err.code === 'SQLITE_LOCKED') && attempt < 5) {
+                        console.log(`⏳ DB ocupada consultando colecciones, reintento ${attempt}/5...`);
+                        setTimeout(() => executeQueryWithRetry(attempt + 1), 500 * attempt);
+                        return;
+                    }
+                    console.error('Error consultando colecciones:', err);
+                    db.close();
+                    resolve([]);
+                    return;
                 }
+                
+                
+                // Construir árbol de colecciones
+                const collectionsMap = new Map();
+                const rootCollections = [];
+                
+                // Primera pasada: crear todos los nodos
+                rows.forEach(row => {
+                    collectionsMap.set(row.collectionID, {
+                        id: row.collectionID,
+                        name: row.collectionName,
+                        parentId: row.parentCollectionID,
+                        children: []
+                    });
+                });
+                
+                // Segunda pasada: construir jerarquía
+                rows.forEach(row => {
+                    const collection = collectionsMap.get(row.collectionID);
+                    if (row.parentCollectionID && collectionsMap.has(row.parentCollectionID)) {
+                        collectionsMap.get(row.parentCollectionID).children.push(collection);
+                    } else {
+                        rootCollections.push(collection);
+                    }
+                });
+                
+                resolve(rootCollections);
             });
-            
-            resolve(rootCollections);
-        });
+        };
+        
+        executeQueryWithRetry();
     });
 }
 
@@ -1566,6 +1832,244 @@ app.get('/api/zotero/entries', async (req, res) => {
         console.error('Error obteniendo entradas de Zotero:', error);
         res.status(500).json({ error: 'Error obteniendo entradas de Zotero' });
     }
+});
+
+// === ENDPOINTS PARA CAPTURA DE REFERENCIAS WEB ===
+
+// Endpoint para agregar nueva referencia capturada desde web
+app.post('/api/references/add', async (req, res) => {
+    try {
+        const { title, authors, year, url, doi, abstract, itemType, dateAdded } = req.body;
+        
+        // Validar campos requeridos
+        if (!title || !url) {
+            return res.status(400).json({ 
+                error: 'Título y URL son campos obligatorios' 
+            });
+        }
+        
+        console.log('📝 Nueva referencia capturada:', { title, authors, itemType });
+        
+        // Abrir base de datos de Zotero con reintentos
+        let db;
+        try {
+            db = await openDatabaseWithRetry(ZOTERO_DB, 5, 1000);
+        } catch (err) {
+            return res.status(503).json({ 
+                error: 'Base de datos Zotero no disponible. Cierra Zotero si está abierto e intenta de nuevo.' 
+            });
+        }
+        
+        // Iniciar transacción para insertar la referencia
+        await new Promise((resolve, reject) => {
+            db.serialize(() => {
+                db.run('BEGIN TRANSACTION');
+                
+                // 1. Obtener el ID del tipo de item
+                const itemTypeQuery = `SELECT itemTypeID FROM itemTypes WHERE typeName = ?`;
+                db.get(itemTypeQuery, [itemType || 'webpage'], (err, row) => {
+                    if (err) {
+                        db.run('ROLLBACK');
+                        db.close();
+                        return reject(new Error('Error obteniendo tipo de item'));
+                    }
+                    
+                    const itemTypeID = row ? row.itemTypeID : 13; // 13 = webpage por defecto
+                    
+                    // 2. Insertar el item principal (libraryID=1 es "Mi biblioteca" por defecto)
+                    // Generar key aleatoria de 8 caracteres (formato de Zotero)
+                    const generateKey = () => {
+                        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+                        let key = '';
+                        for (let i = 0; i < 8; i++) {
+                            key += chars.charAt(Math.floor(Math.random() * chars.length));
+                        }
+                        return key;
+                    };
+                    const itemKey = generateKey();
+                    
+                    const insertItemQuery = `
+                        INSERT INTO items (itemTypeID, libraryID, key, dateAdded, dateModified, clientDateModified)
+                        VALUES (?, 1, ?, ?, ?, ?)
+                    `;
+                    const now = new Date().toISOString().replace('T', ' ').substring(0, 19);
+                    
+                    db.run(insertItemQuery, [itemTypeID, itemKey, now, now, now], function(err) {
+                        if (err) {
+                            console.error('❌ Error en INSERT items:', err);
+                            db.run('ROLLBACK');
+                            db.close();
+                            return reject(new Error(`Error insertando item: ${err.message}`));
+                        }
+                        
+                        const itemID = this.lastID;
+                        console.log(`✅ Item creado con ID: ${itemID}`);
+                        
+                        // 3. Insertar los campos (title, url, abstractNote, date, DOI)
+                        const fieldsToInsert = [];
+                        
+                        // Mapeo de campos
+                        const fieldMap = {
+                            'title': title,
+                            'url': url,
+                            'abstractNote': abstract,
+                            'date': year,
+                            'DOI': doi
+                        };
+                        
+                        // Obtener fieldIDs y preparar inserts
+                        let pendingInserts = 0;
+                        let completedInserts = 0;
+                        let hasError = false;
+                        
+                        Object.keys(fieldMap).forEach(fieldName => {
+                            const fieldValue = fieldMap[fieldName];
+                            if (!fieldValue) return;
+                            
+                            pendingInserts++;
+                            
+                            // Obtener fieldID
+                            db.get(`SELECT fieldID FROM fields WHERE fieldName = ?`, [fieldName], (err, fieldRow) => {
+                                if (err || !fieldRow) {
+                                    completedInserts++;
+                                    return;
+                                }
+                                
+                                const fieldID = fieldRow.fieldID;
+                                
+                                // Insertar o obtener valueID
+                                db.get(`SELECT valueID FROM itemDataValues WHERE value = ?`, [fieldValue], (err, valueRow) => {
+                                    let valueID;
+                                    
+                                    if (valueRow) {
+                                        valueID = valueRow.valueID;
+                                        insertItemData();
+                                    } else {
+                                        db.run(`INSERT INTO itemDataValues (value) VALUES (?)`, [fieldValue], function(err) {
+                                            if (err) {
+                                                hasError = true;
+                                                completedInserts++;
+                                                return;
+                                            }
+                                            valueID = this.lastID;
+                                            insertItemData();
+                                        });
+                                    }
+                                    
+                                    function insertItemData() {
+                                        db.run(`INSERT INTO itemData (itemID, fieldID, valueID) VALUES (?, ?, ?)`, 
+                                            [itemID, fieldID, valueID], (err) => {
+                                            completedInserts++;
+                                            
+                                            if (completedInserts === pendingInserts) {
+                                                finishTransaction();
+                                            }
+                                        });
+                                    }
+                                });
+                            });
+                        });
+                        
+                        // 4. Insertar autores si existen
+                        if (authors) {
+                            const authorList = authors.split(',').map(a => a.trim()).filter(a => a);
+                            pendingInserts += authorList.length;
+                            
+                            // Obtener creatorTypeID para 'author'
+                            db.get(`SELECT creatorTypeID FROM creatorTypes WHERE creatorType = 'author'`, (err, ctRow) => {
+                                const creatorTypeID = ctRow ? ctRow.creatorTypeID : 1;
+                                
+                                authorList.forEach((author, index) => {
+                                    // Separar nombre y apellido (simple: última palabra es apellido)
+                                    const nameParts = author.split(' ');
+                                    const lastName = nameParts.pop();
+                                    const firstName = nameParts.join(' ');
+                                    
+                                    // Insertar o buscar en creators
+                                    db.get(`SELECT creatorID FROM creators WHERE lastName = ? AND firstName = ?`, 
+                                        [lastName, firstName], (err, creatorRow) => {
+                                        
+                                        let creatorID;
+                                        
+                                        if (creatorRow) {
+                                            creatorID = creatorRow.creatorID;
+                                            linkCreator();
+                                        } else {
+                                            db.run(`INSERT INTO creators (lastName, firstName) VALUES (?, ?)`, 
+                                                [lastName, firstName], function(err) {
+                                                if (err) {
+                                                    completedInserts++;
+                                                    return;
+                                                }
+                                                creatorID = this.lastID;
+                                                linkCreator();
+                                            });
+                                        }
+                                        
+                                        function linkCreator() {
+                                            db.run(`INSERT INTO itemCreators (itemID, creatorID, creatorTypeID, orderIndex) VALUES (?, ?, ?, ?)`,
+                                                [itemID, creatorID, creatorTypeID, index], (err) => {
+                                                completedInserts++;
+                                                
+                                                if (completedInserts === pendingInserts) {
+                                                    finishTransaction();
+                                                }
+                                            });
+                                        }
+                                    });
+                                });
+                            });
+                        }
+                        
+                        function finishTransaction() {
+                            if (hasError) {
+                                db.run('ROLLBACK');
+                                db.close();
+                                reject(new Error('Error insertando datos'));
+                            } else {
+                                db.run('COMMIT', (err) => {
+                                    db.close();
+                                    if (err) {
+                                        reject(new Error('Error confirmando transacción'));
+                                    } else {
+                                        console.log(`✅ Referencia guardada exitosamente (ID: ${itemID})`);
+                                        resolve(itemID);
+                                    }
+                                });
+                            }
+                        }
+                        
+                        // Si no hay campos ni autores, finalizar inmediatamente
+                        if (pendingInserts === 0) {
+                            finishTransaction();
+                        }
+                    });
+                });
+            });
+        });
+        
+        res.json({ 
+            success: true,
+            message: `✅ Referencia "${title}" guardada correctamente en Zotero`,
+            timestamp: new Date().toISOString()
+        });
+        
+    } catch (error) {
+        console.error('❌ Error agregando referencia:', error);
+        res.status(500).json({ 
+            error: error.message || 'Error al guardar la referencia en Zotero' 
+        });
+    }
+});
+
+// Endpoint para verificar estado del servidor de referencias
+app.get('/api/references/status', (req, res) => {
+    res.json({
+        ready: true,
+        zoteroDbAvailable: fs.existsSync(ZOTERO_DB),
+        version: '1.0.0',
+        features: ['web-capture', 'bookmarklet', 'manual-entry']
+    });
 });
 
 // Inicialización del servidor

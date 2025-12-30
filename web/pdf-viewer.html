@@ -1,0 +1,908 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Visor PDF - Biblioteca Zotero</title>
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: #f5f5f5;
+            color: #333;
+            overflow: hidden;
+        }
+        
+        .viewer-container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        
+        .toolbar {
+            background: #fff;
+            border-bottom: 1px solid #ddd;
+            padding: 0.75rem 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        .toolbar-left {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        
+        .toolbar-center {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .toolbar-right {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .btn {
+            background: #f8f9fa;
+            border: 1px solid #ddd;
+            color: #333;
+            padding: 0.5rem 0.75rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.875rem;
+            transition: all 0.2s;
+        }
+        
+        .btn:hover {
+            background: #e9ecef;
+            border-color: #21759b;
+        }
+        
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .btn.primary {
+            background: #21759b;
+            color: white;
+            border-color: #21759b;
+        }
+        
+        .btn.primary:hover {
+            background: #1e6a8d;
+        }
+        
+        .page-input {
+            width: 60px;
+            padding: 0.25rem 0.5rem;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            text-align: center;
+            font-size: 0.875rem;
+        }
+        
+        .zoom-control {
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+        
+        .zoom-select {
+            border: 1px solid #ddd;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.875rem;
+        }
+        
+        .content-area {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+        }
+        
+        .pdf-viewer {
+            flex: 1;
+            overflow-y: auto;
+            background: #e9e9e9;
+            padding: 1rem;
+            position: relative;
+        }
+        
+        .page-container {
+            margin: 0 auto 2rem auto;
+            background: white;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            border-radius: 4px;
+            overflow: hidden;
+            max-width: 100%;
+            position: relative;
+        }
+        
+        .page-image {
+            width: 100%;
+            height: auto;
+            display: block;
+            transition: opacity 0.3s;
+        }
+        
+        .page-loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 600px;
+            background: white;
+            color: #666;
+            font-size: 1rem;
+        }
+        
+        .page-error {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 400px;
+            background: #f8d7da;
+            color: #721c24;
+            font-size: 1rem;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .page-number-overlay {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        
+        .loading-indicator {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 1rem 2rem;
+            border-radius: 8px;
+            display: none;
+            z-index: 1000;
+        }
+        
+        .progress-bar {
+            width: 200px;
+            height: 4px;
+            background: #333;
+            border-radius: 2px;
+            overflow: hidden;
+            margin-top: 0.5rem;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: #21759b;
+            border-radius: 2px;
+            transition: width 0.3s;
+            width: 0%;
+        }
+        
+        .sidebar {
+            width: 250px;
+            background: white;
+            border-right: 1px solid #ddd;
+            overflow-y: auto;
+            display: none;
+        }
+        
+        .sidebar.visible {
+            display: block;
+        }
+        
+        .sidebar-header {
+            padding: 1rem;
+            border-bottom: 1px solid #ddd;
+            font-weight: 600;
+            color: #333;
+        }
+        
+        .thumbnail {
+            padding: 0.5rem;
+            border-bottom: 1px solid #eee;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        
+        .thumbnail:hover {
+            background-color: #f8f9fa;
+        }
+        
+        .thumbnail.active {
+            background-color: #e3f2fd;
+            border-left: 3px solid #21759b;
+        }
+        
+        .thumbnail-image {
+            width: 100%;
+            height: auto;
+            border: 1px solid #ddd;
+            border-radius: 2px;
+        }
+        
+        .thumbnail-label {
+            text-align: center;
+            font-size: 0.75rem;
+            color: #666;
+            margin-top: 0.25rem;
+        }
+        
+        .quality-selector {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .quality-btn {
+            padding: 0.25rem 0.5rem;
+            border: 1px solid #ddd;
+            background: white;
+            cursor: pointer;
+            border-radius: 3px;
+            font-size: 0.75rem;
+            transition: all 0.2s;
+        }
+        
+        .quality-btn.active {
+            background: #21759b;
+            color: white;
+            border-color: #21759b;
+        }
+        
+        .document-info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(255,255,255,0.9);
+            padding: 0.5rem;
+            border-radius: 4px;
+            font-size: 0.875rem;
+            color: #333;
+            max-width: 300px;
+            display: none;
+        }
+        
+        .document-info.visible {
+            display: block;
+        }
+        
+        @media (max-width: 768px) {
+            .toolbar {
+                flex-direction: column;
+                gap: 0.5rem;
+                padding: 0.5rem;
+            }
+            
+            .toolbar-left, .toolbar-center, .toolbar-right {
+                flex-wrap: wrap;
+                justify-content: center;
+            }
+            
+            .sidebar {
+                position: fixed;
+                top: 0;
+                left: 0;
+                height: 100vh;
+                z-index: 1000;
+                box-shadow: 2px 0 8px rgba(0,0,0,0.1);
+            }
+            
+            .pdf-viewer {
+                padding: 0.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="viewer-container">
+        <div class="toolbar">
+            <div class="toolbar-left">
+                <button class="btn" onclick="goBack()">
+                    <i class="fas fa-arrow-left"></i> Volver
+                </button>
+                <button class="btn" onclick="toggleSidebar()" id="sidebarToggle">
+                    <i class="fas fa-list"></i> Miniaturas
+                </button>
+                <button class="btn" onclick="toggleDocInfo()" id="docInfoToggle">
+                    <i class="fas fa-info-circle"></i> Info
+                </button>
+            </div>
+            
+            <div class="toolbar-center">
+                <button class="btn" onclick="previousPage()" id="prevBtn">
+                    <i class="fas fa-chevron-left"></i>
+                </button>
+                <span style="font-size: 0.875rem;">Página</span>
+                <input type="number" class="page-input" id="currentPageInput" min="1" value="1" onchange="goToPage(this.value)">
+                <span style="font-size: 0.875rem;">de <span id="totalPages">0</span></span>
+                <button class="btn" onclick="nextPage()" id="nextBtn">
+                    <i class="fas fa-chevron-right"></i>
+                </button>
+            </div>
+            
+            <div class="toolbar-right">
+                <div class="quality-selector">
+                    <span style="font-size: 0.75rem;">Calidad:</span>
+                    <button class="quality-btn" data-quality="low" onclick="changeQuality('low')">Baja</button>
+                    <button class="quality-btn active" data-quality="medium" onclick="changeQuality('medium')">Media</button>
+                    <button class="quality-btn" data-quality="high" onclick="changeQuality('high')">Alta</button>
+                </div>
+                <div class="zoom-control">
+                    <button class="btn" onclick="zoomOut()">
+                        <i class="fas fa-minus"></i>
+                    </button>
+                    <select class="zoom-select" id="zoomSelect" onchange="setZoom(this.value)">
+                        <option value="0.5">50%</option>
+                        <option value="0.75">75%</option>
+                        <option value="1" selected>100%</option>
+                        <option value="1.25">125%</option>
+                        <option value="1.5">150%</option>
+                        <option value="2">200%</option>
+                        <option value="fit">Ajustar</option>
+                    </select>
+                    <button class="btn" onclick="zoomIn()">
+                        <i class="fas fa-plus"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <div class="content-area">
+            <div class="sidebar" id="sidebar">
+                <div class="sidebar-header">
+                    <i class="fas fa-images"></i> Miniaturas
+                </div>
+                <div id="thumbnailContainer">
+                    <!-- Las miniaturas se generarán dinámicamente -->
+                </div>
+            </div>
+            
+            <div class="pdf-viewer" id="pdfViewer">
+                <div class="document-info" id="documentInfo">
+                    <div><strong>Cargando información del documento...</strong></div>
+                </div>
+                <div id="pageContainer">
+                    <!-- Las páginas se cargarán aquí -->
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="loading-indicator" id="loadingIndicator">
+        <div>Cargando páginas...</div>
+        <div class="progress-bar">
+            <div class="progress-fill" id="progressFill"></div>
+        </div>
+    </div>
+
+    <script>
+        // Configuración y variables globales
+        const API_BASE = window.location.origin;
+        let pdfPath = '';
+        let totalPages = 0;
+        let currentPage = 1;
+        let currentQuality = 'medium';
+        let currentZoom = 1;
+        let documentInfo = null;
+        let pageCache = new Map();
+        let loadedPages = new Set();
+        let preloadQueue = [];
+        let isLoading = false;
+        
+        // Elementos DOM
+        const elements = {
+            currentPageInput: document.getElementById('currentPageInput'),
+            totalPagesSpan: document.getElementById('totalPages'),
+            prevBtn: document.getElementById('prevBtn'),
+            nextBtn: document.getElementById('nextBtn'),
+            pageContainer: document.getElementById('pageContainer'),
+            sidebar: document.getElementById('sidebar'),
+            thumbnailContainer: document.getElementById('thumbnailContainer'),
+            documentInfo: document.getElementById('documentInfo'),
+            loadingIndicator: document.getElementById('loadingIndicator'),
+            progressFill: document.getElementById('progressFill'),
+            zoomSelect: document.getElementById('zoomSelect')
+        };
+        
+        // Inicialización
+        async function initializePDFViewer() {
+            // Obtener parámetros de la URL
+            const urlParams = new URLSearchParams(window.location.search);
+            pdfPath = urlParams.get('pdf');
+            
+            if (!pdfPath) {
+                showError('No se especificó el archivo PDF');
+                return;
+            }
+            
+            console.log('🔍 Inicializando visor PDF para:', pdfPath);
+            
+            try {
+                // Cargar información del documento
+                await loadDocumentInfo();
+                
+                // Cargar la primera página y la portada
+                await loadInitialPages();
+                
+                // Generar miniaturas
+                generateThumbnails();
+                
+                // Configurar eventos de scroll para precarga
+                setupScrollPreloading();
+                
+                console.log('✅ Visor PDF inicializado correctamente');
+                
+            } catch (error) {
+                console.error('❌ Error inicializando visor PDF:', error);
+                showError('Error cargando el documento: ' + error.message);
+            }
+        }
+        
+        // Cargar información del documento
+        async function loadDocumentInfo() {
+            showLoading('Obteniendo información del documento...');
+            
+            try {
+                const response = await fetch(`${API_BASE}/pdf-info/${pdfPath}`);
+                if (!response.ok) {
+                    throw new Error(`Error HTTP: ${response.status}`);
+                }
+                
+                documentInfo = await response.json();
+                totalPages = documentInfo.pages;
+                
+                // Actualizar UI
+                elements.totalPagesSpan.textContent = totalPages;
+                elements.currentPageInput.max = totalPages;
+                
+                // Mostrar información del documento
+                updateDocumentInfo();
+                
+                console.log('📄 Documento cargado:', documentInfo);
+                
+            } catch (error) {
+                console.error('Error cargando información del documento:', error);
+                throw error;
+            } finally {
+                hideLoading();
+            }
+        }
+        
+        // Actualizar información del documento
+        function updateDocumentInfo() {
+            const info = documentInfo;
+            const sizeInMB = (info.size / (1024 * 1024)).toFixed(2);
+            const modifiedDate = new Date(info.modified).toLocaleDateString('es-ES');
+            
+            elements.documentInfo.innerHTML = `
+                <div><strong>${info.title}</strong></div>
+                ${info.author ? `<div><strong>Autor:</strong> ${info.author}</div>` : ''}
+                <div><strong>Páginas:</strong> ${info.pages}</div>
+                <div><strong>Tamaño:</strong> ${sizeInMB} MB</div>
+                <div><strong>Modificado:</strong> ${modifiedDate}</div>
+            `;
+        }
+        
+        // Cargar páginas iniciales (portada y primera página)
+        async function loadInitialPages() {
+            showLoading('Cargando páginas iniciales...');
+            
+            try {
+                // Siempre cargar la primera página
+                await loadPage(1);
+                
+                // Si hay más de una página, precargar la segunda
+                if (totalPages > 1) {
+                    preloadQueue.push(2);
+                }
+                
+                // Mostrar la primera página
+                showPage(1);
+                
+                // Iniciar precarga en segundo plano
+                setTimeout(() => {
+                    processPreloadQueue();
+                }, 500);
+                
+            } catch (error) {
+                console.error('Error cargando páginas iniciales:', error);
+                throw error;
+            } finally {
+                hideLoading();
+            }
+        }
+        
+        // Cargar una página específica
+        async function loadPage(pageNum) {
+            if (loadedPages.has(pageNum) || pageNum < 1 || pageNum > totalPages) {
+                return;
+            }
+            
+            try {
+                console.log(`📄 Cargando página ${pageNum} (calidad: ${currentQuality})`);
+                
+                const response = await fetch(`${API_BASE}/pdf-page/${pdfPath}/${pageNum}?quality=${currentQuality}`);
+                if (!response.ok) {
+                    throw new Error(`Error HTTP: ${response.status}`);
+                }
+                
+                const blob = await response.blob();
+                const imageUrl = URL.createObjectURL(blob);
+                
+                // Guardar en cache
+                pageCache.set(`${pageNum}_${currentQuality}`, imageUrl);
+                loadedPages.add(pageNum);
+                
+                // Si la página está actualmente visible, actualizarla
+                if (pageNum === currentPage) {
+                    updateCurrentPageDisplay();
+                }
+                
+                console.log(`✅ Página ${pageNum} cargada`);
+                
+            } catch (error) {
+                console.error(`Error cargando página ${pageNum}:`, error);
+                // Marcar como error para no intentar recargar
+                pageCache.set(`${pageNum}_${currentQuality}`, 'error');
+            }
+        }
+        
+        // Mostrar una página específica
+        function showPage(pageNum) {
+            if (pageNum < 1 || pageNum > totalPages) return;
+            
+            currentPage = pageNum;
+            elements.currentPageInput.value = pageNum;
+            
+            // Actualizar botones de navegación
+            elements.prevBtn.disabled = pageNum === 1;
+            elements.nextBtn.disabled = pageNum === totalPages;
+            
+            // Actualizar display de la página
+            updateCurrentPageDisplay();
+            
+            // Actualizar miniaturas activas
+            updateActiveThumbnail(pageNum);
+            
+            // Precargar páginas adyacentes
+            scheduleAdjacentPreload(pageNum);
+            
+            console.log(`👁️ Mostrando página ${pageNum}`);
+        }
+        
+        // Actualizar display de la página actual
+        function updateCurrentPageDisplay() {
+            const cacheKey = `${currentPage}_${currentQuality}`;
+            const imageUrl = pageCache.get(cacheKey);
+            
+            let pageHTML;
+            
+            if (imageUrl === 'error') {
+                pageHTML = `
+                    <div class="page-container">
+                        <div class="page-error">
+                            <i class="fas fa-exclamation-triangle"></i>
+                            Error cargando la página ${currentPage}
+                        </div>
+                        <div class="page-number-overlay">Página ${currentPage}</div>
+                    </div>
+                `;
+            } else if (imageUrl) {
+                pageHTML = `
+                    <div class="page-container" style="width: ${currentZoom * 100}%;">
+                        <img src="${imageUrl}" alt="Página ${currentPage}" class="page-image">
+                        <div class="page-number-overlay">Página ${currentPage}</div>
+                    </div>
+                `;
+            } else {
+                // Página no cargada, mostrar loading y cargar
+                pageHTML = `
+                    <div class="page-container">
+                        <div class="page-loading">
+                            <i class="fas fa-spinner fa-spin"></i>
+                            Cargando página ${currentPage}...
+                        </div>
+                        <div class="page-number-overlay">Página ${currentPage}</div>
+                    </div>
+                `;
+                
+                // Cargar la página
+                loadPage(currentPage);
+            }
+            
+            elements.pageContainer.innerHTML = pageHTML;
+        }
+        
+        // Programar precarga de páginas adyacentes
+        function scheduleAdjacentPreload(pageNum) {
+            const pagesToPreload = [];
+            
+            // Páginas siguientes (prioridad más alta)
+            for (let i = 1; i <= 3; i++) {
+                if (pageNum + i <= totalPages) {
+                    pagesToPreload.push(pageNum + i);
+                }
+            }
+            
+            // Páginas anteriores
+            for (let i = 1; i <= 2; i++) {
+                if (pageNum - i >= 1) {
+                    pagesToPreload.push(pageNum - i);
+                }
+            }
+            
+            // Agregar a la cola de precarga
+            pagesToPreload.forEach(page => {
+                if (!loadedPages.has(page) && !preloadQueue.includes(page)) {
+                    preloadQueue.push(page);
+                }
+            });
+            
+            // Procesar cola
+            processPreloadQueue();
+        }
+        
+        // Procesar cola de precarga
+        async function processPreloadQueue() {
+            if (isLoading || preloadQueue.length === 0) return;
+            
+            isLoading = true;
+            
+            while (preloadQueue.length > 0) {
+                const pageNum = preloadQueue.shift();
+                if (!loadedPages.has(pageNum)) {
+                    try {
+                        await loadPage(pageNum);
+                        // Pequeña pausa para no sobrecargar
+                        await new Promise(resolve => setTimeout(resolve, 100));
+                    } catch (error) {
+                        console.error('Error en precarga:', error);
+                    }
+                }
+            }
+            
+            isLoading = false;
+        }
+        
+        // Generar miniaturas
+        function generateThumbnails() {
+            const container = elements.thumbnailContainer;
+            container.innerHTML = '';
+            
+            for (let i = 1; i <= totalPages; i++) {
+                const thumbnail = document.createElement('div');
+                thumbnail.className = 'thumbnail';
+                thumbnail.onclick = () => goToPage(i);
+                
+                thumbnail.innerHTML = `
+                    <div class="thumbnail-image" style="background: #f0f0f0; height: 120px; display: flex; align-items: center; justify-content: center; color: #999;">
+                        <i class="fas fa-image"></i>
+                    </div>
+                    <div class="thumbnail-label">Página ${i}</div>
+                `;
+                
+                container.appendChild(thumbnail);
+                
+                // Cargar miniatura en baja calidad
+                loadThumbnail(i, thumbnail);
+            }
+        }
+        
+        // Cargar miniatura
+        async function loadThumbnail(pageNum, thumbnailElement) {
+            try {
+                const response = await fetch(`${API_BASE}/pdf-page/${pdfPath}/${pageNum}?quality=low`);
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const imageUrl = URL.createObjectURL(blob);
+                    
+                    const img = thumbnailElement.querySelector('.thumbnail-image');
+                    img.innerHTML = `<img src="${imageUrl}" style="width: 100%; height: 100%; object-fit: contain;">`;
+                }
+            } catch (error) {
+                console.error(`Error cargando miniatura ${pageNum}:`, error);
+            }
+        }
+        
+        // Configurar scroll para precarga
+        function setupScrollPreloading() {
+            // En este visor de página única, no necesitamos scroll preloading
+            // pero podemos prepararlo para futuras mejoras
+        }
+        
+        // Funciones de navegación
+        function previousPage() {
+            if (currentPage > 1) {
+                showPage(currentPage - 1);
+            }
+        }
+        
+        function nextPage() {
+            if (currentPage < totalPages) {
+                showPage(currentPage + 1);
+            }
+        }
+        
+        function goToPage(pageNum) {
+            const page = parseInt(pageNum);
+            if (page >= 1 && page <= totalPages) {
+                showPage(page);
+            }
+        }
+        
+        // Funciones de zoom
+        function zoomIn() {
+            const currentZoomIndex = [0.5, 0.75, 1, 1.25, 1.5, 2].indexOf(currentZoom);
+            if (currentZoomIndex < 5) {
+                setZoom([0.5, 0.75, 1, 1.25, 1.5, 2][currentZoomIndex + 1]);
+            }
+        }
+        
+        function zoomOut() {
+            const currentZoomIndex = [0.5, 0.75, 1, 1.25, 1.5, 2].indexOf(currentZoom);
+            if (currentZoomIndex > 0) {
+                setZoom([0.5, 0.75, 1, 1.25, 1.5, 2][currentZoomIndex - 1]);
+            }
+        }
+        
+        function setZoom(zoom) {
+            if (zoom === 'fit') {
+                // Calcular zoom para ajustar al ancho
+                currentZoom = 1; // Implementar lógica de ajuste
+            } else {
+                currentZoom = parseFloat(zoom);
+            }
+            
+            elements.zoomSelect.value = zoom;
+            updateCurrentPageDisplay();
+        }
+        
+        // Cambiar calidad
+        function changeQuality(quality) {
+            currentQuality = quality;
+            
+            // Actualizar botones de calidad
+            document.querySelectorAll('.quality-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            document.querySelector(`[data-quality="${quality}"]`).classList.add('active');
+            
+            // Limpiar cache y recargar página actual
+            pageCache.clear();
+            loadedPages.clear();
+            preloadQueue = [];
+            
+            // Recargar página actual
+            loadPage(currentPage).then(() => {
+                updateCurrentPageDisplay();
+                
+                // Recargar miniaturas si están visibles
+                if (elements.sidebar.classList.contains('visible')) {
+                    generateThumbnails();
+                }
+            });
+        }
+        
+        // Funciones de UI
+        function toggleSidebar() {
+            elements.sidebar.classList.toggle('visible');
+            const toggle = document.getElementById('sidebarToggle');
+            const isVisible = elements.sidebar.classList.contains('visible');
+            toggle.innerHTML = isVisible 
+                ? '<i class="fas fa-times"></i> Ocultar' 
+                : '<i class="fas fa-list"></i> Miniaturas';
+        }
+        
+        function toggleDocInfo() {
+            elements.documentInfo.classList.toggle('visible');
+            const toggle = document.getElementById('docInfoToggle');
+            const isVisible = elements.documentInfo.classList.contains('visible');
+            toggle.innerHTML = isVisible 
+                ? '<i class="fas fa-times"></i> Ocultar Info' 
+                : '<i class="fas fa-info-circle"></i> Info';
+        }
+        
+        function updateActiveThumbnail(pageNum) {
+            document.querySelectorAll('.thumbnail').forEach(thumb => {
+                thumb.classList.remove('active');
+            });
+            
+            const activeThumbnail = document.querySelectorAll('.thumbnail')[pageNum - 1];
+            if (activeThumbnail) {
+                activeThumbnail.classList.add('active');
+                activeThumbnail.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+        }
+        
+        function showLoading(message) {
+            elements.loadingIndicator.style.display = 'block';
+            elements.loadingIndicator.querySelector('div').textContent = message || 'Cargando...';
+        }
+        
+        function hideLoading() {
+            elements.loadingIndicator.style.display = 'none';
+        }
+        
+        function showError(message) {
+            elements.pageContainer.innerHTML = `
+                <div class="page-container">
+                    <div class="page-error">
+                        <i class="fas fa-exclamation-triangle"></i><br>
+                        ${message}
+                    </div>
+                </div>
+            `;
+        }
+        
+        function goBack() {
+            if (window.history.length > 1) {
+                window.history.back();
+            } else {
+                window.location.href = '/';
+            }
+        }
+        
+        // Eventos de teclado
+        document.addEventListener('keydown', (e) => {
+            switch (e.key) {
+                case 'ArrowLeft':
+                    e.preventDefault();
+                    previousPage();
+                    break;
+                case 'ArrowRight':
+                    e.preventDefault();
+                    nextPage();
+                    break;
+                case 'Home':
+                    e.preventDefault();
+                    goToPage(1);
+                    break;
+                case 'End':
+                    e.preventDefault();
+                    goToPage(totalPages);
+                    break;
+                case 'Escape':
+                    e.preventDefault();
+                    goBack();
+                    break;
+            }
+        });
+        
+        // Inicializar cuando el DOM esté listo
+        document.addEventListener('DOMContentLoaded', initializePDFViewer);
+        
+        // Limpiar URLs de objeto al salir
+        window.addEventListener('beforeunload', () => {
+            pageCache.forEach(url => {
+                if (typeof url === 'string' && url.startsWith('blob:')) {
+                    URL.revokeObjectURL(url);
+                }
+            });
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zotero Connector - Guía de Configuración</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            font-size: 1.2em;
+            opacity: 0.9;
+        }
+
+        .content {
+            padding: 40px;
+        }
+
+        .section {
+            margin-bottom: 40px;
+        }
+
+        .section h2 {
+            color: #667eea;
+            font-size: 1.8em;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 3px solid #667eea;
+        }
+
+        .section h3 {
+            color: #555;
+            font-size: 1.3em;
+            margin: 20px 0 10px 0;
+        }
+
+        .step {
+            background: #f8f9fa;
+            padding: 20px;
+            margin: 15px 0;
+            border-left: 4px solid #667eea;
+            border-radius: 5px;
+        }
+
+        .step-number {
+            display: inline-block;
+            width: 30px;
+            height: 30px;
+            background: #667eea;
+            color: white;
+            text-align: center;
+            line-height: 30px;
+            border-radius: 50%;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+
+        .code {
+            background: #2d2d2d;
+            color: #f8f8f2;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            margin: 10px 0;
+            font-family: 'Courier New', monospace;
+        }
+
+        .code-inline {
+            background: #e9ecef;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            color: #e83e8c;
+        }
+
+        .alert {
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+        }
+
+        .alert-info {
+            background: #d1ecf1;
+            border-left: 4px solid #0c5460;
+            color: #0c5460;
+        }
+
+        .alert-warning {
+            background: #fff3cd;
+            border-left: 4px solid #856404;
+            color: #856404;
+        }
+
+        .alert-success {
+            background: #d4edda;
+            border-left: 4px solid #155724;
+            color: #155724;
+        }
+
+        .button {
+            display: inline-block;
+            padding: 12px 30px;
+            background: #667eea;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: bold;
+            transition: background 0.3s;
+        }
+
+        .button:hover {
+            background: #5568d3;
+        }
+
+        .test-section {
+            background: #f0f7ff;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+
+        .test-result {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 5px;
+            font-family: monospace;
+        }
+
+        .test-success {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .test-error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        ul, ol {
+            margin-left: 25px;
+            margin-bottom: 15px;
+        }
+
+        li {
+            margin: 8px 0;
+        }
+
+        .bookmarklet {
+            background: #ffc107;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            margin: 20px 0;
+        }
+
+        .bookmarklet a {
+            display: inline-block;
+            padding: 15px 30px;
+            background: #212529;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: bold;
+            font-size: 1.2em;
+        }
+
+        .back-link {
+            text-align: center;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔗 Zotero Connector</h1>
+            <p>Guarda referencias bibliográficas desde tu navegador</p>
+        </div>
+
+        <div class="content">
+            <!-- Introducción -->
+            <div class="section">
+                <h2>📖 Introducción</h2>
+                <p>Este servidor incluye endpoints compatibles con Zotero Connector, permitiéndote guardar referencias bibliográficas directamente desde páginas web a tu base de datos Zotero.</p>
+                
+                <div class="alert alert-info">
+                    <strong>✨ Ventaja:</strong> No necesitas tener Zotero Desktop corriendo. Todo se guarda directamente en tu base de datos SQLite.
+                </div>
+            </div>
+
+            <!-- Opción 1: Firefox Portable -->
+            <div class="section">
+                <h2>🦊 Opción 1: Firefox Portable + Zotero Connector</h2>
+                
+                <div class="step">
+                    <span class="step-number">1</span>
+                    <strong>Descargar Firefox Portable</strong>
+                    <p>Descarga desde: <a href="https://portableapps.com/apps/internet/firefox_portable" target="_blank">portableapps.com/apps/internet/firefox_portable</a></p>
+                    <p>No requiere instalación ni permisos de administrador.</p>
+                </div>
+
+                <div class="step">
+                    <span class="step-number">2</span>
+                    <strong>Instalar Zotero Connector</strong>
+                    <p>En Firefox Portable, ve a: <a href="https://www.zotero.org/download/connectors" target="_blank">zotero.org/download/connectors</a></p>
+                    <p>Instala la extensión de Firefox.</p>
+                </div>
+
+                <div class="step">
+                    <span class="step-number">3</span>
+                    <strong>Configurar URL del servidor</strong>
+                    <p>Click derecho en el icono de Zotero Connector → <strong>Preferences</strong> → <strong>Advanced</strong></p>
+                    <p>Busca la preferencia: <span class="code-inline">extensions.zotero.connector.url</span></p>
+                    <p>Cambia el valor a:</p>
+                    <div class="code" id="connector-url">
+                        <span id="server-url">Cargando...</span>/connector/
+                    </div>
+                </div>
+
+                <div class="step">
+                    <span class="step-number">4</span>
+                    <strong>¡Listo! Pruébalo</strong>
+                    <p>Navega a PubMed, Google Scholar, o cualquier sitio con metadatos bibliográficos.</p>
+                    <p>Click en el icono de Zotero Connector para guardar la referencia.</p>
+                </div>
+            </div>
+
+            <!-- Opción 2: Bookmarklet -->
+            <div class="section">
+                <h2>🔖 Opción 2: Bookmarklet (Cualquier navegador)</h2>
+                
+                <p>Si no puedes usar extensiones, arrastra este botón a tu barra de marcadores:</p>
+                
+                <div class="bookmarklet">
+                    <p><strong>⬇️ Arrastra este botón a tus marcadores</strong></p>
+                    <a href="javascript:(function(){const t=document.title,u=window.location.href,s=window.getSelection().toString(),a=document.querySelector('meta[name=&quot;author&quot;]'),au=a?a.content:'';fetch(window.location.origin+'/connector/saveItems',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({items:[{itemType:'webpage',title:t,url:u,abstractNote:s,creators:au?[{lastName:au,creatorType:'author'}]:[],accessDate:new Date().toISOString().split('T')[0]}]})}).then(r=>r.json()).then(d=>alert('✅ Guardado: '+t)).catch(e=>alert('❌ Error: '+e.message));})();" onclick="alert('Arrastra este botón a tu barra de marcadores, no hagas click aquí'); return false;">📚 Guardar en Zotero</a>
+                </div>
+
+                <div class="alert alert-info">
+                    <strong>Uso:</strong> En cualquier página web, haz click en el marcador "Guardar en Zotero" para guardar la página como referencia.
+                </div>
+            </div>
+
+            <!-- Prueba de conexión -->
+            <div class="section">
+                <h2>🧪 Probar Conexión</h2>
+                
+                <div class="test-section">
+                    <h3>Estado del Servidor</h3>
+                    <button class="button" onclick="testConnection()">🔍 Probar Conexión</button>
+                    <div id="test-results"></div>
+                </div>
+
+                <div class="alert alert-warning">
+                    <strong>⚠️ Importante:</strong> Asegúrate de que el servidor esté corriendo antes de usar Zotero Connector.
+                </div>
+            </div>
+
+            <!-- Información adicional -->
+            <div class="section">
+                <h2>📚 Datos que se Guardan</h2>
+                <ul>
+                    <li>✅ Título del documento</li>
+                    <li>✅ Autores</li>
+                    <li>✅ Fecha de publicación</li>
+                    <li>✅ Abstract/Resumen</li>
+                    <li>✅ DOI, PMID, URL</li>
+                    <li>✅ Revista/Editorial</li>
+                    <li>✅ Volumen, número, páginas</li>
+                    <li>✅ Tags/Etiquetas</li>
+                </ul>
+            </div>
+
+            <div class="section">
+                <h2>🔧 Solución de Problemas</h2>
+                
+                <h3>El conector no conecta</h3>
+                <ul>
+                    <li>Verifica que el servidor esté corriendo</li>
+                    <li>Revisa la URL configurada en Connector</li>
+                    <li>Comprueba firewall/permisos de red</li>
+                </ul>
+
+                <h3>Las referencias no aparecen</h3>
+                <ul>
+                    <li>Recarga la página de biblioteca (F5)</li>
+                    <li>Verifica los logs del servidor</li>
+                    <li>Comprueba permisos de escritura en la base de datos</li>
+                </ul>
+            </div>
+
+            <div class="back-link">
+                <a href="/" class="button">⬅️ Volver a Biblioteca</a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Detectar URL del servidor
+        const serverUrl = window.location.origin;
+        document.getElementById('server-url').textContent = serverUrl;
+
+        // Función para probar conexión
+        async function testConnection() {
+            const resultsDiv = document.getElementById('test-results');
+            resultsDiv.innerHTML = '<p>⏳ Probando conexión...</p>';
+
+            try {
+                // Test 1: Ping
+                const pingResponse = await fetch('/connector/ping');
+                const pingData = await pingResponse.json();
+                
+                let html = '<h4>Resultados:</h4>';
+                
+                if (pingResponse.ok) {
+                    html += '<div class="test-result test-success">✅ Ping exitoso - Servidor respondiendo</div>';
+                } else {
+                    html += '<div class="test-result test-error">❌ Error en ping</div>';
+                    resultsDiv.innerHTML = html;
+                    return;
+                }
+
+                // Test 2: Collections
+                const collResponse = await fetch('/connector/collections');
+                const collData = await collResponse.json();
+                
+                if (collResponse.ok) {
+                    html += `<div class="test-result test-success">✅ Colecciones disponibles: ${Array.isArray(collData) ? collData.length : 0}</div>`;
+                } else {
+                    html += '<div class="test-result test-error">❌ Error obteniendo colecciones</div>';
+                }
+
+                html += '<div class="alert alert-success" style="margin-top: 15px;"><strong>🎉 ¡Todo funciona correctamente!</strong><br>Ya puedes configurar Zotero Connector.</div>';
+                
+                resultsDiv.innerHTML = html;
+
+            } catch (error) {
+                resultsDiv.innerHTML = `<div class="test-result test-error">❌ Error de conexión: ${error.message}</div>`;
+            }
+        }
+
+        // Auto-test al cargar la página
+        window.addEventListener('load', () => {
+            setTimeout(testConnection, 500);
+        });
+    </script>
+</body>
+</html>

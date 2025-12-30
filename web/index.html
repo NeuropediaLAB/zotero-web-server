@@ -604,6 +604,13 @@
                         <div class="stat-label">Última Sync</div>
                     </div>
                 </div>
+                <div class="stat-mini" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-color: #667eea; cursor: pointer;" onclick="window.location.href='/add-reference.html'">
+                    <div class="stat-icon" style="color: white;"><i class="fas fa-plus-circle"></i></div>
+                    <div class="stat-content">
+                        <div class="stat-number" style="color: white; font-size: 0.9rem;">Agregar</div>
+                        <div class="stat-label" style="color: rgba(255,255,255,0.9);">REFERENCIA</div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -1296,7 +1303,7 @@
             `;
         }
         
-        // Función auxiliar para abrir PDF desde la ruta de attachment de Zotero
+        // Función auxiliar para abrir PDF desde la ruta de attachment de Zotero con visor progresivo
         async function openPdfFromAttachment(attachmentPath) {
             if (!attachmentPath) {
                 alert('No se encontró la ruta del PDF');
@@ -1304,23 +1311,47 @@
             }
             
             try {
-                console.log('📄 Abriendo PDF con ruta:', attachmentPath);
+                console.log('📄 Abriendo PDF con visor progresivo:', attachmentPath);
                 
-                // Usar el nuevo endpoint de resolución de rutas
-                const response = await fetch(`${API_BASE}/api/resolve-pdf?path=${encodeURIComponent(attachmentPath)}`);
+                // Preparar la ruta para el visor progresivo
+                let pdfPathForViewer = '';
                 
-                if (!response.ok) {
-                    throw new Error(`Error HTTP: ${response.status}`);
+                if (attachmentPath.startsWith('/library/')) {
+                    // PDF en biblioteca principal
+                    pdfPathForViewer = 'library/' + encodeURIComponent(attachmentPath.replace('/library/', ''));
+                } else if (attachmentPath.startsWith('/storage/')) {
+                    // PDF en storage de Zotero
+                    pdfPathForViewer = attachmentPath.substring(1); // Remover la barra inicial
+                } else {
+                    // Intentar resolver la ruta usando el endpoint existente
+                    const response = await fetch(`${API_BASE}/api/resolve-pdf?path=${encodeURIComponent(attachmentPath)}`);
+                    
+                    if (!response.ok) {
+                        throw new Error(`Error HTTP: ${response.status}`);
+                    }
+                    
+                    const data = await response.json();
+                    
+                    if (data.found && data.webPath) {
+                        // Convertir webPath a formato para el visor
+                        if (data.webPath.startsWith('/biblioteca/')) {
+                            pdfPathForViewer = 'library/' + encodeURIComponent(data.webPath.replace('/biblioteca/', ''));
+                        } else if (data.webPath.startsWith('/storage/')) {
+                            pdfPathForViewer = data.webPath.substring(1);
+                        }
+                    } else {
+                        console.error('❌ PDF no encontrado:', data);
+                        alert(`No se encontró el PDF: ${data.filename}\n\nRuta original: ${attachmentPath}\n\nAsegúrate de que el archivo esté sincronizado en la biblioteca.`);
+                        return;
+                    }
                 }
                 
-                const data = await response.json();
-                
-                if (data.found && data.webPath) {
-                    console.log('✅ PDF encontrado, abriendo:', data.webPath);
-                    window.open(data.webPath, '_blank');
+                if (pdfPathForViewer) {
+                    console.log('✅ Abriendo PDF en visor progresivo:', pdfPathForViewer);
+                    const viewerUrl = `/pdf-viewer?pdf=${encodeURIComponent(pdfPathForViewer)}`;
+                    window.open(viewerUrl, '_blank');
                 } else {
-                    console.error('❌ PDF no encontrado:', data);
-                    alert(`No se encontró el PDF: ${data.filename}\n\nRuta original: ${attachmentPath}\n\nAsegúrate de que el archivo esté sincronizado en la biblioteca.`);
+                    throw new Error('No se pudo determinar la ruta del PDF para el visor');
                 }
                 
             } catch (error) {
@@ -1468,16 +1499,35 @@
             }
         }
         
-        // Función para abrir archivo
+        // Función para abrir archivo con visor progresivo
         function openFile(filePath) {
             if (!filePath) return;
             
-            // Limpiar la ruta
-            let cleanPath = filePath.replace('/app/data/biblioteca/', '');
+            console.log('📄 Abriendo archivo:', filePath);
             
-            // Construir URL para abrir el PDF
-            const pdfUrl = `${API_BASE}/biblioteca/${encodeURIComponent(cleanPath)}`;
-            window.open(pdfUrl, '_blank');
+            // Determinar el tipo de ruta y preparar para el visor
+            let pdfPathForViewer = '';
+            
+            if (filePath.startsWith('/app/data/biblioteca/')) {
+                // Ruta interna del contenedor, convertir a biblioteca
+                const cleanPath = filePath.replace('/app/data/biblioteca/', '');
+                pdfPathForViewer = 'library/' + encodeURIComponent(cleanPath);
+            } else if (filePath.startsWith('/biblioteca/')) {
+                // Ya es ruta de biblioteca
+                const cleanPath = filePath.replace('/biblioteca/', '');
+                pdfPathForViewer = 'library/' + encodeURIComponent(cleanPath);
+            } else if (filePath.startsWith('/storage/')) {
+                // Ruta de storage
+                pdfPathForViewer = filePath.substring(1); // Remover barra inicial
+            } else {
+                // Asumir que es un archivo en biblioteca
+                pdfPathForViewer = 'library/' + encodeURIComponent(filePath);
+            }
+            
+            // Abrir en el visor progresivo
+            const viewerUrl = `/pdf-viewer?pdf=${encodeURIComponent(pdfPathForViewer)}`;
+            console.log('✅ Abriendo en visor progresivo:', viewerUrl);
+            window.open(viewerUrl, '_blank');
         }
 
         // Inicializar pestañas

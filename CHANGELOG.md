@@ -2,6 +2,32 @@
 
 Todas las modificaciones notables a este proyecto serán documentadas en este archivo.
 
+## [0.3.2] - 2024-12-29
+
+### 🔗 Añadido - Compatibilidad Zotero Connector
+- **Endpoints Zotero Connector**: Guarda referencias desde navegador sin Zotero Desktop
+  - `GET /connector/ping` - Verificación de conexión
+  - `POST /connector/saveItems` - Guardar referencias bibliográficas completas
+  - `GET /connector/collections` - Listar colecciones disponibles
+- **Página de configuración**: `/connector-setup.html` con guía paso a paso
+- **Documentación completa**: `ZOTERO_CONNECTOR_SETUP.md` con instrucciones detalladas
+- **Script de prueba**: `test-connector.sh` para verificar endpoints
+- **Soporte Firefox Portable**: Instrucciones para uso sin instalación
+- **Bookmarklet alternativo**: Para navegadores sin extensiones
+
+### 📚 Características Zotero Connector
+- Guarda metadatos completos (título, autores, DOI, abstract, etc.)
+- Inserta directamente en base de datos SQLite de Zotero
+- Compatible con PubMed, Google Scholar, arXiv, etc.
+- Maneja creadores, tags y campos personalizados
+- Genera keys únicos automáticamente
+
+### 🎯 Caso de Uso
+- Ideal para hospitales/instituciones con restricciones de instalación
+- Permite usar Zotero Connector sin Zotero Desktop corriendo
+- Firefox Portable + extensión no requiere permisos de administrador
+- Bookmarklet funciona en cualquier navegador
+
 ## [0.3.1] - 2024-12-20
 
 ### 🐛 Corregido
