@@ -27,6 +27,22 @@ const WEB_DIR = path.join(__dirname, 'web');
 const STORAGE_DIR = process.env.STORAGE_DIR || '/home/arkantu/Zotero/storage';
 const BIBLIOTECA_DIR = process.env.BIBLIOTECA_DIR || '/home/arkantu/Documentos/Zotero Biblioteca';
 const ZOTERO_DB = process.env.ZOTERO_DB || '/home/arkantu/Zotero/zotero.sqlite';
+
+const ZoteroWebDAVSync = require('./webdav-sync');
+let webdavSync = null;
+
+if (process.env.WEBDAV_ENABLED === 'true') {
+    webdavSync = new ZoteroWebDAVSync({
+        webdavUrl: process.env.WEBDAV_URL || 'https://owncloud.serviciosylaboratoriodomestico.site/remote.php/dav/files/arkantu',
+        username: process.env.WEBDAV_USERNAME || 'arkantu',
+        password: process.env.WEBDAV_PASSWORD || 'akelarre',
+        localBibliotecaDir: BIBLIOTECA_DIR,
+        localZoteroDir: path.dirname(ZOTERO_DB)
+    });
+    console.log('WebDAV habilitado');
+} else {
+    console.log('WebDAV deshabilitado');
+}
 const CACHE_DIR = process.env.CACHE_DIR || path.join(__dirname, 'data', 'cache');
 const PDF_INDEX_FILE = path.join(CACHE_DIR, 'pdf-text-index.json');
 
@@ -811,6 +827,38 @@ function countPDFsInDirectory(dir, maxDepth = 3, currentDepth = 0) {
 }
 
 // API Routes
+
+app.post("/api/webdav/sync-database", async (req, res) => {
+    try {
+        if (!webdavSync) return res.status(503).json({ error: "WebDAV no habilitado" });
+        const result = await webdavSync.syncDatabase();
+        res.json(result ? { success: true, message: "DB sincronizada" } : { error: "Error sync DB" });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post("/api/webdav/sync-pdfs", async (req, res) => {
+    try {
+        if (!webdavSync) return res.status(503).json({ error: "WebDAV no habilitado" });
+        const limit = parseInt(req.body.limit) || 100;
+        const result = await webdavSync.syncAllPDFs(limit);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get("/api/webdav/status", async (req, res) => {
+    try {
+        if (!webdavSync) return res.json({ enabled: false, connected: false });
+        const connected = await webdavSync.testConnection();
+        res.json({ enabled: true, connected: connected });
+    } catch (error) {
+        res.json({ enabled: true, connected: false, error: error.message });
+    }
+});
+
 
 // Cache para estadísticas con timestamp
 let statsCache = {
