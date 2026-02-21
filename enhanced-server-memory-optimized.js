@@ -850,6 +850,8 @@ async function indexPDFsFromWebDAV(limit = 50, skipExisting = true) {
         
         // Filtrar solo los que tienen ZIP en WebDAV
         const availableStorageKeys = new Set(storageKeys.map(sk => sk.storageKey));
+        console.log(`DEBUG: First 10 WebDAV storage keys:`, Array.from(availableStorageKeys).slice(0, 10));
+        console.log(`DEBUG: First 10 BD storage keys:`, allPdfList.slice(0, 10).map(p => p.storageKey));
         const pdfList = allPdfList.filter(pdf => availableStorageKeys.has(pdf.storageKey)).slice(0, limit);
         
         indexingState.total = pdfList.length;
