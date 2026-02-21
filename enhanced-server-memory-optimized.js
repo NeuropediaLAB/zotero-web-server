@@ -379,8 +379,12 @@ function processIndexingQueue() {
             savePDFIndex();
         }
         
-        // Actualizar contador desde base de datos
-        stats.indexedPDFs = await countIndexedPDFsFromDatabase();
+        // Actualizar contador desde base de datos (sin await, en segundo plano)
+        countIndexedPDFsFromDatabase().then(count => {
+            stats.indexedPDFs = count;
+        }).catch(err => {
+            console.error('Error actualizando contador:', err);
+        });
         
         currentIndexing = null;
         stats.isIndexing = false;
