@@ -27,22 +27,7 @@ const WEB_DIR = path.join(__dirname, 'web');
 const STORAGE_DIR = process.env.STORAGE_DIR || '/home/arkantu/Zotero/storage';
 const BIBLIOTECA_DIR = process.env.BIBLIOTECA_DIR || '/home/arkantu/Documentos/Zotero Biblioteca';
 const ZOTERO_DB = process.env.ZOTERO_DB || '/home/arkantu/Zotero/zotero.sqlite';
-
-const ZoteroWebDAVSync = require('./webdav-sync');
-let webdavSync = null;
-
-if (process.env.WEBDAV_ENABLED === 'true') {
-    webdavSync = new ZoteroWebDAVSync({
-        webdavUrl: process.env.WEBDAV_URL || 'https://owncloud.serviciosylaboratoriodomestico.site/remote.php/dav/files/arkantu',
-        username: process.env.WEBDAV_USERNAME || 'arkantu',
-        password: process.env.WEBDAV_PASSWORD || 'akelarre',
-        localBibliotecaDir: BIBLIOTECA_DIR,
-        localZoteroDir: path.dirname(ZOTERO_DB)
-    });
-    console.log('WebDAV habilitado');
-} else {
-    console.log('WebDAV deshabilitado');
-}
+const ZoteroWebDAVSync = require('./webdav-sync');let webdavSync = null;if (process.env.WEBDAV_ENABLED === 'true') {    webdavSync = new ZoteroWebDAVSync({        webdavUrl: process.env.WEBDAV_URL || 'https://owncloud.serviciosylaboratoriodomestico.site/remote.php/dav/files/arkantu',        username: process.env.WEBDAV_USERNAME || 'arkantu',        password: process.env.WEBDAV_PASSWORD || 'akelarre',        localBibliotecaDir: BIBLIOTECA_DIR,        localZoteroDir: path.dirname(ZOTERO_DB)    });    console.log('WebDAV habilitado');} else {    console.log('WebDAV deshabilitado');}
 const CACHE_DIR = process.env.CACHE_DIR || path.join(__dirname, 'data', 'cache');
 const PDF_INDEX_FILE = path.join(CACHE_DIR, 'pdf-text-index.json');
 
@@ -827,38 +812,104 @@ function countPDFsInDirectory(dir, maxDepth = 3, currentDepth = 0) {
 }
 
 // API Routes
-
-app.post("/api/webdav/sync-database", async (req, res) => {
+app.get('/api/resolve-pdf', async (req, res) => {
     try {
-        if (!webdavSync) return res.status(503).json({ error: "WebDAV no habilitado" });
-        const result = await webdavSync.syncDatabase();
-        res.json(result ? { success: true, message: "DB sincronizada" } : { error: "Error sync DB" });
+        let attachmentPath = req.query.path;
+        
+        if (!attachmentPath) {
+            return res.status(400).json({ error: 'Path parameter is required' });
+        }
+        
+        console.log('Resolviendo ruta PDF:', attachmentPath);
+        
+        if (attachmentPath.startsWith('storage:')) {
+            attachmentPath = attachmentPath.substring(8);
+        }
+        
+        if (attachmentPath.startsWith('attachments:')) {
+            attachmentPath = attachmentPath.substring(12);
+        }
+        
+        const fileName = path.basename(attachmentPath);
+        
+        function findFileRecursive(dir, targetFile) {
+            try {
+                const items = fs.readdirSync(dir);
+                for (const item of items) {
+                    const fullPath = path.join(dir, item);
+                    const stats = fs.statSync(fullPath);
+                    if (stats.isDirectory()) {
+                        const found = findFileRecursive(fullPath, targetFile);
+                        if (found) return found;
+                    } else if (item === targetFile) {
+                        return fullPath;
+                    }
+                }
+            } catch (err) {
+                console.error('Error buscando archivo:', err);
+            }
+            return null;
+        }
+        
+        let foundPath = findFileRecursive(BIBLIOTECA_DIR, fileName);
+        
+        if (!foundPath && webdavSync) {
+            console.log('Archivo no encontrado localmente, intentando descargar desde WebDAV...');
+            
+            const pathParts = attachmentPath.split('/');
+            let storageKey = null;
+            
+            for (const part of pathParts) {
+                if (/^[A-Z0-9]{8}$/.test(part)) {
+                    storageKey = part;
+                    break;
+                }
+            }
+            
+            if (storageKey) {
+                try {
+                    await webdavSync.init();
+                    const remotePath = '/zotero/storage/' + storageKey + '/' + fileName;
+                    const localDir = path.join(BIBLIOTECA_DIR, storageKey);
+                    const localPath = path.join(localDir, fileName);
+                    
+                    console.log('Descargando desde WebDAV: ' + remotePath);
+                    const success = await webdavSync.downloadPDF(remotePath, localPath);
+                    
+                    if (success) {
+                        foundPath = localPath;
+                        console.log('PDF descargado exitosamente desde WebDAV');
+                    }
+                } catch (error) {
+                    console.error('Error descargando desde WebDAV:', error.message);
+                }
+            }
+        }
+        
+        if (foundPath) {
+            const relativePath = path.relative(BIBLIOTECA_DIR, foundPath);
+            console.log('PDF encontrado:', relativePath);
+            
+            res.json({
+                found: true,
+                filename: fileName,
+                relativePath: relativePath,
+                webPath: '/biblioteca/' + relativePath,
+                fullPath: foundPath
+            });
+        } else {
+            console.log('PDF no encontrado:', fileName);
+            res.status(404).json({
+                found: false,
+                filename: fileName,
+                message: 'PDF no encontrado'
+            });
+        }
     } catch (error) {
+        console.error('Error resolviendo PDF:', error);
         res.status(500).json({ error: error.message });
     }
 });
-
-app.post("/api/webdav/sync-pdfs", async (req, res) => {
-    try {
-        if (!webdavSync) return res.status(503).json({ error: "WebDAV no habilitado" });
-        const limit = parseInt(req.body.limit) || 100;
-        const result = await webdavSync.syncAllPDFs(limit);
-        res.json(result);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-app.get("/api/webdav/status", async (req, res) => {
-    try {
-        if (!webdavSync) return res.json({ enabled: false, connected: false });
-        const connected = await webdavSync.testConnection();
-        res.json({ enabled: true, connected: connected });
-    } catch (error) {
-        res.json({ enabled: true, connected: false, error: error.message });
-    }
-});
-
 
 // Cache para estadísticas con timestamp
 let statsCache = {
