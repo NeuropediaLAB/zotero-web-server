@@ -1787,11 +1787,32 @@ function getCollectionItems(collectionId, includeSubcollections = true) {
                     return;
                 }
                 
-                const items = (rows || []).map(row => ({
-                    ...row,
-                    hasPdf: row.attachmentPath ? true : false,
-                    pdfPath: row.attachmentPath || null
-                }));
+                const items = (rows || []).map(row => {
+                    // Normalizar attachmentPath a formato storage:filename.pdf
+                    let normalizedPath = null;
+                    if (row.attachmentPath) {
+                        // Si es ruta completa local, extraer solo el filename
+                        if (row.attachmentPath.startsWith('/')) {
+                            const filename = row.attachmentPath.split('/').pop();
+                            normalizedPath = 'storage:' + filename;
+                        } 
+                        // Si ya tiene formato storage:, mantenerlo
+                        else if (row.attachmentPath.startsWith('storage:')) {
+                            normalizedPath = row.attachmentPath;
+                        }
+                        // Cualquier otro caso, agregar storage:
+                        else {
+                            normalizedPath = 'storage:' + row.attachmentPath;
+                        }
+                    }
+                    
+                    return {
+                        ...row,
+                        attachmentPath: normalizedPath,
+                        hasPdf: normalizedPath ? true : false,
+                        pdfPath: normalizedPath
+                    };
+                });
                 
                 resolve(items);
             });

@@ -1250,18 +1250,13 @@
                     window.open(data.cachePath, '_blank');
                 } else {
                     console.error('❌ PDF no encontrado:', data);
-                    alert(`❌ PDF no disponible en WebDAV
-
-📄 Archivo: ${data.filename}
-
-ℹ️ Este PDF está registrado en la base de datos pero no está disponible en el servidor WebDAV.
-
-💡 Solución:
-1. Sincroniza la biblioteca de Zotero Desktop con WebDAV
-2. Verifica que la sincronización de archivos adjuntos esté habilitada
-3. Espera a que se complete la sincronización
-
-Una vez sincronizado, el PDF se descargará automáticamente al hacer click.`);
+                    alert("PDF no disponible en WebDAV\n\n" +
+                        "Archivo: " + data.filename + "\n\n" +
+                        "Este PDF esta registrado pero no disponible en WebDAV.\n\n" +
+                        "Solucion:\n" +
+                        "1. Sincroniza Zotero Desktop con WebDAV\n" +
+                        "2. Verifica sincronizacion de adjuntos\n" +
+                        "3. Espera a que se complete la sincronizacion");
                 }
                 
             } catch (error) {
