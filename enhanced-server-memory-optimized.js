@@ -848,34 +848,21 @@ async function indexPDFsFromWebDAV(limit = 50, skipExisting = true) {
                 try {
                     indexingState.currentPDF = pdfInfo.filename;
                     
-                    // Verificar si ya está indexado
-                    const possiblePaths = [
-                        path.join(BIBLIOTECA_DIR, pdfInfo.storageKey, pdfInfo.filename),
-                        path.join(BIBLIOTECA_DIR, pdfInfo.filename)
-                    ];
-                    
-                    if (skipExisting) {
-                        for (const p of possiblePaths) {
-                            if (pdfTextIndex.has(p)) {
-                                console.log(`⏭️  Ya indexado: ${pdfInfo.filename}`);
-                                indexingState.processed++;
-                                return;
-                            }
-                        }
+                    // Verificar si ya está indexado usando webdavPath
+                    if (skipExisting && pdfTextIndex.has(pdfInfo.webdavPath)) {
+                        console.log(`⏭️  Ya indexado: ${pdfInfo.filename}`);
+                        indexingState.processed++;
+                        return;
                     }
 
-                    // Descargar PDF desde WebDAV
-                    const remotePath = '/zotero/storage/' + pdfInfo.storageKey + '/' + pdfInfo.filename;
-                    const localDir = path.join(BIBLIOTECA_DIR, pdfInfo.storageKey);
-                    const localPath = path.join(localDir, pdfInfo.filename);
-                    
+                    // Descargar PDF a cache temporal
                     console.log(`⬇️  Descargando: ${pdfInfo.filename}`);
-                    const downloaded = await webdavSync.downloadPDF(remotePath, localPath);
+                    const localPath = await webdavSync.downloadPDFToCache(pdfInfo.webdavPath);
                     
-                    if (downloaded && fs.existsSync(localPath)) {
-                        // Indexar el PDF con OCR
-                        console.log(`🔎 Extrayendo texto con OCR: ${pdfInfo.filename}`);
-                        await indexPDFWithOCR(localPath);
+                    if (localPath && fs.existsSync(localPath)) {
+                        // Indexar con webdavPath como key
+                        console.log(`🔎 Extrayendo texto: ${pdfInfo.filename}`);
+                        await indexPDFWithOCR(localPath, pdfInfo.webdavPath);
                         indexingState.success++;
                         console.log(`✅ Indexado: ${pdfInfo.filename}`);
                     } else {
@@ -957,6 +944,7 @@ async function getPDFListFromDatabase(limit = 50) {
             }
 
             const pdfList = rows.map(row => ({
+                webdavPath: `/zotero/storage/${row.storageKey}/${path.basename(row.path)}`,
                 storageKey: row.storageKey,
                 filename: path.basename(row.path)
             }));
@@ -968,7 +956,7 @@ async function getPDFListFromDatabase(limit = 50) {
 }
 
 
-async function indexPDFWithOCR(pdfPath) {
+async function indexPDFWithOCR(pdfPath, webdavPath = null) {
     return new Promise((resolve, reject) => {
         if (!fs.existsSync(pdfPath)) {
             reject(new Error('PDF no encontrado'));
@@ -1389,7 +1377,7 @@ app.get('/api/pdfs', (req, res) => {
 });
 
 // Endpoint para resolver ruta de PDF desde Zotero attachment path
-app.get('/api/resolve-pdf', (req, res) => {
+app.get('/api/resolve-pdf', async (req, res) => {
     try {
         let attachmentPath = req.query.path;
         
@@ -1397,71 +1385,132 @@ app.get('/api/resolve-pdf', (req, res) => {
             return res.status(400).json({ error: 'Path parameter is required' });
         }
         
-        console.log('📄 Resolviendo ruta PDF:', attachmentPath);
+        console.log('Resolviendo PDF:', attachmentPath);
         
-        // Manejar formato "storage:KEY/filename.pdf"
-        if (attachmentPath.startsWith('storage:')) {
-            attachmentPath = attachmentPath.substring(8); // Remover "storage:"
-        }
-        
-        // Manejar formato "attachments:KEY/filename.pdf"  
-        if (attachmentPath.startsWith('attachments:')) {
-            attachmentPath = attachmentPath.substring(12); // Remover "attachments:"
-        }
-        
-        // Extraer el nombre del archivo
         const fileName = path.basename(attachmentPath);
+        let storageKey = null;
         
-        // Buscar el archivo en BIBLIOTECA_DIR recursivamente
-        function findFileRecursive(dir, targetFile) {
-            try {
-                const items = fs.readdirSync(dir);
-                
-                for (const item of items) {
-                    const fullPath = path.join(dir, item);
-                    const stats = fs.statSync(fullPath);
+        // Si es ruta absoluta, buscar storage key en BD
+        if (attachmentPath.startsWith('/') || attachmentPath.includes('Biblioteca')) {
+            if (fs.existsSync(ZOTERO_DB)) {
+                try {
+                    const db = new sqlite3.Database(ZOTERO_DB, sqlite3.OPEN_READONLY);
                     
-                    if (stats.isDirectory()) {
-                        const found = findFileRecursive(fullPath, targetFile);
-                        if (found) return found;
-                    } else if (item === targetFile) {
-                        return fullPath;
-                    }
+                    await new Promise((resolve) => {
+                        db.get('SELECT i.key FROM itemAttachments ia JOIN items i ON ia.itemID = i.itemID WHERE ia.path = ?', 
+                            [attachmentPath], (err, row) => {
+                            if (!err && row && row.key) {
+                                storageKey = row.key;
+                            }
+                            db.close();
+                            resolve();
+                        });
+                    });
+                } catch (error) {
+                    console.error('Error BD:', error);
                 }
-            } catch (err) {
-                console.error('Error buscando archivo:', err);
             }
-            return null;
+        } else {
+            // Extraer storage key de formato storage:KEY/file
+            if (attachmentPath.startsWith('storage:')) {
+                attachmentPath = attachmentPath.substring(8);
+            }
+            
+            const pathParts = attachmentPath.split('/');
+            for (const part of pathParts) {
+                if (/^[A-Z0-9]{8}$/.test(part)) {
+                    storageKey = part;
+                    break;
+                }
+            }
         }
         
-        const foundPath = findFileRecursive(BIBLIOTECA_DIR, fileName);
+        if (!storageKey) {
+            console.log('No se pudo determinar storage key');
+            return res.status(404).json({
+                found: false,
+                filename: fileName,
+                message: 'Storage key no encontrado'
+            });
+        }
         
-        if (foundPath) {
-            // Convertir a ruta relativa para el servidor web
-            const relativePath = path.relative(BIBLIOTECA_DIR, foundPath);
-            console.log('✅ PDF encontrado:', relativePath);
+        console.log('Storage key:', storageKey);
+        
+        if (!webdavSync) {
+            return res.status(503).json({ error: 'WebDAV no habilitado' });
+        }
+        
+        // Construir path WebDAV
+        const webdavPath = `/zotero/storage/${storageKey}/${fileName}`;
+        
+        // Verificar si existe en WebDAV
+        const exists = await webdavSync.fileExists(webdavPath);
+        
+        if (!exists) {
+            console.log('PDF no existe en WebDAV:', webdavPath);
+            return res.status(404).json({
+                found: false,
+                filename: fileName,
+                webdavPath: webdavPath,
+                message: 'PDF no encontrado en WebDAV'
+            });
+        }
+        
+        // Descargar al cache temporal
+        const localPath = await webdavSync.downloadPDFToCache(webdavPath);
+        
+        if (localPath) {
+            const relativePath = path.relative(webdavSync.tempCacheDir, localPath);
+            console.log('PDF disponible:', webdavPath);
             
             res.json({
                 found: true,
                 filename: fileName,
-                relativePath: relativePath,
-                webPath: `/biblioteca/${relativePath}`,
-                originalPath: attachmentPath
+                storageKey: storageKey,
+                webdavPath: webdavPath,
+                cachePath: `/cache/${relativePath}`,
+                fullPath: localPath
             });
         } else {
-            console.log('❌ PDF no encontrado:', fileName);
-            res.status(404).json({
+            console.log('Error descargando PDF');
+            res.status(500).json({
                 found: false,
                 filename: fileName,
-                error: 'PDF file not found in biblioteca',
-                originalPath: attachmentPath
+                message: 'Error descargando desde WebDAV'
             });
         }
     } catch (error) {
-        console.error('Error resolviendo PDF:', error);
-        res.status(500).json({ error: 'Error resolving PDF path', message: error.message });
+        console.error('Error:', error);
+        res.status(500).json({ error: error.message });
     }
 });
+
+
+// Endpoint para servir PDFs desde cache temporal
+app.get('/cache/*', (req, res) => {
+    try {
+        const requestedPath = req.params[0];
+        const cachePath = path.join(webdavSync.tempCacheDir, requestedPath);
+        
+        // Verificar que el archivo existe y está dentro del cache
+        if (!cachePath.startsWith(webdavSync.tempCacheDir)) {
+            return res.status(403).json({ error: 'Acceso denegado' });
+        }
+        
+        if (!fs.existsSync(cachePath)) {
+            return res.status(404).json({ error: 'Archivo no encontrado en cache' });
+        }
+        
+        console.log('Sirviendo desde cache:', requestedPath);
+        res.sendFile(cachePath);
+    } catch (error) {
+        console.error('Error sirviendo archivo:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+
+
 
 // Ruta para servir archivos PDF
 app.get('/pdf/:filename(*)', (req, res) => {
