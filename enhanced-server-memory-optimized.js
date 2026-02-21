@@ -1756,7 +1756,8 @@ function getCollectionItems(collectionId, includeSubcollections = true) {
                     it.typeName as type,
                     GROUP_CONCAT(COALESCE(c.firstName || ' ' || c.lastName, ''), ', ') as authors,
                     ia.path as attachmentPath,
-                    ci.collectionID
+                    ci.collectionID,
+                    ia_item.key as storageKey
                 FROM collectionItems ci
                 JOIN items i ON ci.itemID = i.itemID
                 LEFT JOIN itemTypes it ON i.itemTypeID = it.itemTypeID
@@ -1770,6 +1771,7 @@ function getCollectionItems(collectionId, includeSubcollections = true) {
                 LEFT JOIN creators c ON ic.creatorID = c.creatorID
                 LEFT JOIN itemAttachments ia ON i.itemID = ia.parentItemID 
                     AND ia.contentType = 'application/pdf'
+                LEFT JOIN items ia_item ON ia.itemID = ia_item.itemID
                 WHERE ci.collectionID IN (${placeholders})
                     AND i.itemID NOT IN (SELECT itemID FROM deletedItems)
                     AND it.typeName NOT IN ('attachment', 'note', 'annotation')
@@ -1815,11 +1817,13 @@ function getCollectionItems(collectionId, includeSubcollections = true) {
                     };
                 });
                 
-                // Verificar disponibilidad en WebDAV para cada PDF (solo los primeros 100 por performance)
+                // Verificar disponibilidad en WebDAV para cada PDF
                 const itemsWithAvailability = await Promise.all(normalizedItems.map(async (item) => {
-                    if (item.hasPdf && item.key) {
+                    if (item.hasPdf && item.storageKey) {
                         try {
-                            const available = await webdavSync.fileExists('/zotero/storage/' + item.key);
+                            const filename = item.attachmentPath.replace('storage:', '');
+                            const webdavPath = `/zotero/storage/${item.storageKey}/${filename}`;
+                            const available = await webdavSync.fileExists(webdavPath);
                             return {
                                 ...item,
                                 pdfAvailable: available,
