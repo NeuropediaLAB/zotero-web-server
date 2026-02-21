@@ -1862,6 +1862,36 @@ app.get('/api/zotero/entries', async (req, res) => {
 });
 
 // Inicialización del servidor
+async function countPDFsFromDatabase() {
+    return new Promise((resolve) => {
+        if (!fs.existsSync(ZOTERO_DB)) {
+            resolve(0);
+            return;
+        }
+
+        const db = new sqlite3.Database(ZOTERO_DB, sqlite3.OPEN_READONLY, (err) => {
+            if (err) {
+                console.error('Error abriendo BD para contar:', err);
+                resolve(0);
+                return;
+            }
+        });
+
+        const query = "SELECT COUNT(*) as count FROM itemAttachments WHERE contentType = 'application/pdf'";
+
+        db.get(query, [], (err, row) => {
+            db.close();
+            if (err) {
+                console.error('Error contando PDFs:', err);
+                resolve(0);
+            } else {
+                resolve(row.count || 0);
+            }
+        });
+    });
+}
+
+
 async function initServer() {
     console.log('🚀 Inicializando servidor...');
     
