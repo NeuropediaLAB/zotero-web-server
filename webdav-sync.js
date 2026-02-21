@@ -51,10 +51,13 @@ class ZoteroWebDAVSync {
             await this.init();
             
             // Listar archivos ZIP en /zotero (Zotero empaqueta cada storage folder en un ZIP)
-            const contents = await this.client.getDirectoryContents('/zotero', { 
+            const response = await this.client.getDirectoryContents('/zotero', { 
                 deep: false, 
                 details: true 
             });
+            
+            // getDirectoryContents retorna un objeto con .data
+            const contents = Array.isArray(response) ? response : response.data;
             
             const zipFiles = contents.filter(item => 
                 item.type === 'file' && 
