@@ -1115,7 +1115,7 @@ let statsCache = {
     ttl: 10000 // Cache válido por 10 segundos
 };
 
-app.get('/api/stats', (req, res) => {
+app.get('/api/stats', async (req, res) => {
     try {
         const now = Date.now();
         
@@ -1124,10 +1124,10 @@ app.get('/api/stats', (req, res) => {
             return res.json(statsCache.data);
         }
         
-        // Actualizar conteo de PDFs
+        // Actualizar conteo de PDFs desde BD
         try {
-            const libraryFiles = getLibraryPDFs(BIBLIOTECA_DIR, 1, 10000);
-            stats.totalPDFs = libraryFiles.total;
+            const dbCount = await countPDFsFromDatabase();
+            stats.totalPDFs = dbCount;
         } catch (error) {
             console.error('Error actualizando conteo de PDFs:', error);
             // Mantener el valor anterior si hay error
@@ -1862,6 +1862,36 @@ app.get('/api/zotero/entries', async (req, res) => {
 });
 
 // Inicialización del servidor
+async function countPDFsFromDatabase() {
+    return new Promise((resolve) => {
+        if (!fs.existsSync(ZOTERO_DB)) {
+            resolve(0);
+            return;
+        }
+
+        const db = new sqlite3.Database(ZOTERO_DB, sqlite3.OPEN_READONLY, (err) => {
+            if (err) {
+                console.error('Error abriendo BD para contar:', err);
+                resolve(0);
+                return;
+            }
+        });
+
+        const query = "SELECT COUNT(*) as count FROM itemAttachments WHERE contentType = 'application/pdf'";
+
+        db.get(query, [], (err, row) => {
+            db.close();
+            if (err) {
+                console.error('Error contando PDFs:', err);
+                resolve(0);
+            } else {
+                resolve(row.count || 0);
+            }
+        });
+    });
+}
+
+
 async function countPDFsFromDatabase() {
     return new Promise((resolve) => {
         if (!fs.existsSync(ZOTERO_DB)) {
