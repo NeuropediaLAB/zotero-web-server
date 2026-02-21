@@ -841,11 +841,20 @@ async function indexPDFsFromWebDAV(limit = 50, skipExisting = true) {
     try {
         await webdavSync.init();
         
-        // Obtener lista de PDFs desde BD
-        const pdfList = await getPDFListFromDatabase(limit);
+        // Obtener lista de storage keys disponibles en WebDAV
+        const storageKeys = await webdavSync.listAllPDFs();
+        console.log(`📦 ${storageKeys.length} storage keys disponibles en WebDAV`);
+        
+        // Obtener lista de PDFs desde BD y filtrar por disponibilidad en WebDAV
+        const allPdfList = await getPDFListFromDatabase(limit * 2); // Obtener más para compensar no disponibles
+        
+        // Filtrar solo los que tienen ZIP en WebDAV
+        const availableStorageKeys = new Set(storageKeys.map(sk => sk.storageKey));
+        const pdfList = allPdfList.filter(pdf => availableStorageKeys.has(pdf.storageKey)).slice(0, limit);
+        
         indexingState.total = pdfList.length;
         
-        console.log(`�� Total de PDFs a procesar: ${pdfList.length}`);
+        console.log(`📋 Total de PDFs disponibles a procesar: ${pdfList.length}`);
 
         // Procesar en lotes pequeños para no saturar memoria
         const batchSize = 5;
@@ -1496,23 +1505,23 @@ app.get('/api/resolve-pdf', async (req, res) => {
             return res.status(503).json({ error: 'WebDAV no habilitado' });
         }
         
-        // Construir path WebDAV
-        const webdavPath = `/zotero/storage/${storageKey}/${fileName}`;
-        
-        // Verificar si existe en WebDAV
-        const exists = await webdavSync.fileExists(webdavPath);
+        // Verificar si existe el ZIP del storage key en WebDAV
+        const exists = await webdavSync.storageKeyExists(storageKey);
         
         if (!exists) {
-            console.log('PDF no existe en WebDAV:', webdavPath);
+            console.log('Storage key no existe en WebDAV:', storageKey);
             return res.status(404).json({
                 found: false,
                 filename: fileName,
-                webdavPath: webdavPath,
-                message: 'PDF no encontrado en WebDAV'
+                storageKey: storageKey,
+                message: 'Storage key no encontrado en WebDAV. Sincroniza desde Zotero Desktop.'
             });
         }
         
-        // Descargar al cache temporal
+        // Construir path WebDAV correcto
+        const webdavPath = `/zotero/storage/${storageKey}/${fileName}`;
+        
+        // Descargar y extraer ZIP al cache temporal
         const localPath = await webdavSync.downloadPDFToCache(webdavPath);
         
         if (localPath) {
@@ -1887,9 +1896,8 @@ function getCollectionItems(collectionId, includeSubcollections = true) {
                 const itemsWithAvailability = await Promise.all(normalizedItems.map(async (item) => {
                     if (item.hasPdf && item.storageKey) {
                         try {
-                            const filename = item.attachmentPath.replace('storage:', '');
-                            const webdavPath = `/zotero/storage/${item.storageKey}/${filename}`;
-                            const available = await webdavSync.fileExists(webdavPath);
+                            // Verificar si el ZIP del storage key existe en WebDAV
+                            const available = await webdavSync.storageKeyExists(item.storageKey);
                             return {
                                 ...item,
                                 pdfAvailable: available,
@@ -2278,7 +2286,7 @@ app.get('/api/webdav/availability', async (req, res) => {
         // Verificar cada uno en WebDAV
         for (const pdf of pdfs) {
             if (pdf.key) {
-                const exists = await webdavSync.fileExists('/zotero/storage/' + pdf.key);
+                const exists = await webdavSync.storageKeyExists(pdf.key);
                 if (exists) {
                     available++;
                 } else {

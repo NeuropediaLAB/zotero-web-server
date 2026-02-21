@@ -1,5 +1,6 @@
 const fs = require('fs-extra');
 const path = require('path');
+const unzipper = require('unzipper');
 
 class ZoteroWebDAVSync {
     constructor(config) {
@@ -48,20 +49,31 @@ class ZoteroWebDAVSync {
     async listAllPDFs() {
         try {
             await this.init();
-            const contents = await this.client.getDirectoryContents('/zotero/storage', { 
-                deep: true, 
+            
+            // Listar archivos ZIP en /zotero (Zotero empaqueta cada storage folder en un ZIP)
+            const contents = await this.client.getDirectoryContents('/zotero', { 
+                deep: false, 
                 details: true 
             });
             
-            const pdfs = contents.filter(item => 
+            const zipFiles = contents.filter(item => 
                 item.type === 'file' && 
-                item.filename.toLowerCase().endsWith('.pdf')
+                item.filename.toLowerCase().endsWith('.zip')
             );
             
-            console.log(`📚 Encontrados ${pdfs.length} PDFs en WebDAV`);
-            return pdfs;
+            console.log(`📦 Encontrados ${zipFiles.length} archivos ZIP en WebDAV`);
+            
+            // Mapear ZIPs a storage keys
+            const storageKeys = zipFiles.map(zip => ({
+                storageKey: path.basename(zip.filename, '.zip'),
+                remotePath: zip.filename,
+                size: zip.size
+            }));
+            
+            console.log(`📚 ${storageKeys.length} storage keys disponibles en WebDAV`);
+            return storageKeys;
         } catch (error) {
-            console.error('Error listando PDFs:', error.message);
+            console.error('Error listando ZIPs:', error.message);
             return [];
         }
     }
@@ -70,30 +82,67 @@ class ZoteroWebDAVSync {
         try {
             await this.init();
             
-            // Crear path local temporal basado en la estructura WebDAV
-            const relativePath = remotePath.replace('/zotero/storage/', '');
-            const localPath = path.join(this.tempCacheDir, relativePath);
+            // Extraer el storage key del remotePath
+            // remotePath puede ser: /zotero/storage/ABCD1234/filename.pdf
+            let storageKey, filename;
+            
+            if (remotePath.startsWith('/zotero/storage/')) {
+                const parts = remotePath.replace('/zotero/storage/', '').split('/');
+                storageKey = parts[0];
+                filename = parts.slice(1).join('/');
+            } else {
+                console.error(`Formato de ruta no soportado: ${remotePath}`);
+                return null;
+            }
+            
+            // Cache path para el storage key
+            const cacheDir = path.join(this.tempCacheDir, storageKey);
+            const cachedPdfPath = path.join(cacheDir, filename);
             
             // Verificar si ya existe en cache
-            if (await fs.pathExists(localPath)) {
-                const stats = await fs.stat(localPath);
+            if (await fs.pathExists(cachedPdfPath)) {
+                const stats = await fs.stat(cachedPdfPath);
                 // Si tiene menos de 1 hora, usar cache
                 if ((Date.now() - stats.mtimeMs) < 3600000) {
-                    console.log(`📦 Usando cache: ${path.basename(localPath)}`);
-                    return localPath;
+                    console.log(`📦 Usando cache: ${filename}`);
+                    return cachedPdfPath;
                 }
             }
             
-            // Descargar desde WebDAV
-            console.log(`⬇️  Descargando: ${remotePath}`);
-            await fs.ensureDir(path.dirname(localPath));
-            const contents = await this.client.getFileContents(remotePath);
-            await fs.writeFile(localPath, contents);
-            console.log(`✅ Descargado: ${path.basename(localPath)}`);
+            // Descargar ZIP desde WebDAV
+            const zipPath = `/zotero/${storageKey}.zip`;
+            console.log(`⬇️  Descargando ZIP: ${zipPath}`);
             
-            return localPath;
+            const zipBuffer = await this.client.getFileContents(zipPath);
+            
+            // Extraer el ZIP
+            console.log(`📂 Extrayendo ZIP para storage key: ${storageKey}`);
+            await fs.ensureDir(cacheDir);
+            
+            const directory = await unzipper.Open.buffer(zipBuffer);
+            
+            // Extraer todos los archivos del ZIP
+            for (const file of directory.files) {
+                if (file.type === 'File') {
+                    const fileBuffer = await file.buffer();
+                    const extractedPath = path.join(cacheDir, file.path);
+                    await fs.ensureDir(path.dirname(extractedPath));
+                    await fs.writeFile(extractedPath, fileBuffer);
+                    console.log(`✅ Extraído: ${file.path}`);
+                }
+            }
+            
+            // Verificar si el PDF buscado existe
+            if (await fs.pathExists(cachedPdfPath)) {
+                console.log(`✅ PDF encontrado: ${filename}`);
+                return cachedPdfPath;
+            }
+            
+            console.log(`⚠️ PDF no encontrado en ZIP: ${filename}`);
+            return null;
+            
         } catch (error) {
-            console.error(`Error descargando ${remotePath}:`, error.message);
+            console.error(`Error descargando/extrayendo ${remotePath}:`, error.message);
             return null;
         }
     }
@@ -112,7 +161,32 @@ class ZoteroWebDAVSync {
     async fileExists(remotePath) {
         try {
             await this.init();
-            const exists = await this.client.exists(remotePath);
+            
+            // Extraer storage key del remotePath
+            let storageKey;
+            if (remotePath.startsWith('/zotero/storage/')) {
+                storageKey = remotePath.replace('/zotero/storage/', '').split('/')[0];
+            } else if (remotePath.includes('/')) {
+                // Formato: ABCD1234/filename.pdf
+                storageKey = remotePath.split('/')[0];
+            } else {
+                return false;
+            }
+            
+            // Verificar si existe el ZIP para ese storage key
+            const zipPath = `/zotero/${storageKey}.zip`;
+            const exists = await this.client.exists(zipPath);
+            return exists;
+        } catch (error) {
+            return false;
+        }
+    }
+    
+    async storageKeyExists(storageKey) {
+        try {
+            await this.init();
+            const zipPath = `/zotero/${storageKey}.zip`;
+            const exists = await this.client.exists(zipPath);
             return exists;
         } catch (error) {
             return false;
