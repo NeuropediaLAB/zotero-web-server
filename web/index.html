@@ -605,7 +605,7 @@
                         <h3>📚 Base de Datos Zotero</h3>
                         <p style="font-size: 0.9rem; color: #7f8c8d;">
                             Navega por tu biblioteca usando el panel izquierdo. Selecciona carpetas para ver PDFs o colecciones para ver items de Zotero.
-                            <br>📄 = Con PDF (click para abrir) | 🔗 = URL disponible | ⚠️ = Sin PDF ni URL
+                            <br>📄 = PDF registrado (click para abrir) | 🔗 = URL disponible | ⚠️ = Sin PDF ni URL
                         </p>
                     </div>
                     <div id="databaseResults" class="results">
@@ -1209,7 +1209,7 @@
                 itemHTML += `
                     </div>
                     <div class="result-path">
-                        🗓️ Añadido: ${new Date(entry.dateAdded).toLocaleDateString()} | Estado: ${hasPdf ? '✅ Con PDF' : (safeUrl ? '🔗 URL disponible' : '⚠️ Sin PDF ni URL')}
+                        🗓️ Añadido: ${new Date(entry.dateAdded).toLocaleDateString()} | Estado: ${hasPdf ? '✅ PDF registrado (click para verificar)' : (safeUrl ? '🔗 URL disponible' : '⚠️ Sin PDF ni URL')}
                     </div>
                 </div>
                 `;
@@ -1250,11 +1250,18 @@
                     window.open(data.cachePath, '_blank');
                 } else {
                     console.error('❌ PDF no encontrado:', data);
-                    alert(`No se encontró el PDF en WebDAV
+                    alert(`❌ PDF no disponible en WebDAV
 
-Archivo: ${data.filename}
+📄 Archivo: ${data.filename}
 
-El archivo debe estar sincronizado en WebDAV para poder visualizarlo.`);
+ℹ️ Este PDF está registrado en la base de datos pero no está disponible en el servidor WebDAV.
+
+💡 Solución:
+1. Sincroniza la biblioteca de Zotero Desktop con WebDAV
+2. Verifica que la sincronización de archivos adjuntos esté habilitada
+3. Espera a que se complete la sincronización
+
+Una vez sincronizado, el PDF se descargará automáticamente al hacer click.`);
                 }
                 
             } catch (error) {
