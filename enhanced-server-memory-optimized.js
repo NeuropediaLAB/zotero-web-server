@@ -1387,6 +1387,11 @@ app.get('/api/resolve-pdf', async (req, res) => {
         
         console.log('Resolviendo PDF:', attachmentPath);
         
+        // Limpiar prefijo storage: si existe
+        if (attachmentPath.startsWith("storage:")) {
+            attachmentPath = attachmentPath.substring(8);
+        }
+
         const fileName = path.basename(attachmentPath);
         let storageKey = null;
         
@@ -1412,9 +1417,6 @@ app.get('/api/resolve-pdf', async (req, res) => {
             }
         } else {
             // Extraer storage key de formato storage:KEY/file o storage:filename.pdf
-            if (attachmentPath.startsWith('storage:')) {
-                attachmentPath = attachmentPath.substring(8);
-            }
             
             // Buscar KEY en el path (formato KEY/file.pdf)
             const pathParts = attachmentPath.split('/');
