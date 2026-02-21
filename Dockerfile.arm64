@@ -8,7 +8,7 @@ RUN apk add --no-cache \
     poppler-utils imagemagick ghostscript \
     python3 py3-pip py3-setuptools make g++ qpdf \
     cairo-dev jpeg-dev pango-dev giflib-dev pixman-dev \
-    && pip3 install --no-cache-dir ocrmypdf
+    && pip3 install --no-cache-dir --break-system-packages ocrmypdf
 
 RUN addgroup -g 1001 -S nodejs && adduser -S zotero -u 1001 -G nodejs
 

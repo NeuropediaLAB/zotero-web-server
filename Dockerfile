@@ -18,7 +18,7 @@ RUN apk add --no-cache \
     python3 \
     py3-pip \
     qpdf \
-    && pip3 install --no-cache-dir ocrmypdf
+    && pip3 install --no-cache-dir --break-system-packages ocrmypdf
 
 # Crear usuario no-root
 RUN addgroup -g 1001 -S nodejs && \
