@@ -379,7 +379,8 @@ function processIndexingQueue() {
             savePDFIndex();
         }
         
-        stats.indexedPDFs = pdfTextIndex.size;
+        // Actualizar contador desde base de datos
+        stats.indexedPDFs = await countIndexedPDFsFromDatabase();
         
         currentIndexing = null;
         stats.isIndexing = false;
@@ -1121,8 +1122,8 @@ app.get('/api/stats', async (req, res) => {
             // Mantener el valor anterior si hay error
         }
         
-        // Actualizar estadísticas
-        stats.indexedPDFs = pdfTextIndex.size;
+        // Actualizar estadísticas desde base de datos
+        stats.indexedPDFs = await countIndexedPDFsFromDatabase();
         stats.syncStatus = stats.isIndexing ? 'Indexando...' : 'Listo';
         
         // Solo actualizar lastSync cuando realmente se actualizaron las estadísticas
@@ -2076,6 +2077,36 @@ async function countPDFsFromDatabase() {
     });
 }
 
+async function countIndexedPDFsFromDatabase() {
+    return new Promise((resolve) => {
+        const dbPath = path.join(__dirname, 'zotero.sqlite');
+        if (!fs.existsSync(dbPath)) {
+            resolve(0);
+            return;
+        }
+
+        const db = new sqlite3.Database(dbPath, sqlite3.OPEN_READONLY, (err) => {
+            if (err) {
+                console.error('Error abriendo BD de indexación:', err);
+                resolve(0);
+                return;
+            }
+        });
+
+        const query = "SELECT COUNT(*) as count FROM documents";
+
+        db.get(query, [], (err, row) => {
+            db.close();
+            if (err) {
+                console.error('Error contando PDFs indexados:', err);
+                resolve(0);
+            } else {
+                resolve(row.count || 0);
+            }
+        });
+    });
+}
+
 
 async function initServer() {
     console.log('🚀 Inicializando servidor...');
@@ -2092,10 +2123,11 @@ async function initServer() {
     try {
         const libraryFiles = getLibraryPDFs(BIBLIOTECA_DIR, 1, 10000);
         const dbCount = await countPDFsFromDatabase();
+        const indexedCount = await countIndexedPDFsFromDatabase();
         stats.totalPDFs = dbCount;
-        stats.indexedPDFs = pdfTextIndex.size;
+        stats.indexedPDFs = indexedCount;
         
-        console.log(`📊 PDFs en BD: ${stats.totalPDFs}, indexados localmente: ${stats.indexedPDFs}`);
+        console.log(`📊 PDFs en BD: ${stats.totalPDFs}, indexados en base de datos: ${stats.indexedPDFs}`);
         
         // Añadir solo los primeros 100 archivos no indexados para evitar sobrecarga
         let addedToQueue = 0;
