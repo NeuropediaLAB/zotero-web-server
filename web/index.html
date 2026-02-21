@@ -1234,7 +1234,7 @@
             }
             
             try {
-                console.log('📄 Abriendo PDF con ruta:', attachmentPath);
+                console.log('📄 Abriendo PDF:', attachmentPath.split('/').pop());
                 
                 // Usar el nuevo endpoint de resolución de rutas
                 const response = await fetch(`${API_BASE}/api/resolve-pdf?path=${encodeURIComponent(attachmentPath)}`);
@@ -1245,12 +1245,16 @@
                 
                 const data = await response.json();
                 
-                if (data.found && data.webPath) {
-                    console.log('✅ PDF encontrado, abriendo:', data.webPath);
-                    window.open(data.webPath, '_blank');
+                if (data.found && data.cachePath) {
+                    console.log('✅ PDF encontrado, abriendo:', data.cachePath);
+                    window.open(data.cachePath, '_blank');
                 } else {
                     console.error('❌ PDF no encontrado:', data);
-                    alert(`No se encontró el PDF: ${data.filename}\n\nRuta original: ${attachmentPath}\n\nAsegúrate de que el archivo esté sincronizado en la biblioteca.`);
+                    alert(`No se encontró el PDF en WebDAV
+
+Archivo: ${data.filename}
+
+El archivo debe estar sincronizado en WebDAV para poder visualizarlo.`);
                 }
                 
             } catch (error) {
