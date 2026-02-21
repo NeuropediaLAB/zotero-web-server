@@ -822,15 +822,57 @@ app.get('/api/resolve-pdf', async (req, res) => {
         
         console.log('Resolviendo ruta PDF:', attachmentPath);
         
-        if (attachmentPath.startsWith('storage:')) {
-            attachmentPath = attachmentPath.substring(8);
-        }
-        
-        if (attachmentPath.startsWith('attachments:')) {
-            attachmentPath = attachmentPath.substring(12);
-        }
-        
+        // Extraer filename y buscar storage key en la BD
         const fileName = path.basename(attachmentPath);
+        
+        // Si la ruta es absoluta, buscar el storage key en la BD
+        let storageKey = null;
+        
+        if (attachmentPath.startsWith('/') || attachmentPath.includes('Biblioteca')) {
+            // Es una ruta absoluta, buscar en la BD
+            if (fs.existsSync(ZOTERO_DB)) {
+                try {
+                    const db = await openDatabaseWithRetry(ZOTERO_DB);
+                    const query = 'SELECT ia.path FROM itemAttachments ia WHERE ia.path LIKE ?';
+                    
+                    await new Promise((resolve, reject) => {
+                        db.get(query, ['%' + fileName], (err, row) => {
+                            if (!err && row && row.path) {
+                                const pathParts = row.path.split('/');
+                                for (const part of pathParts) {
+                                    if (/^[A-Z0-9]{8}$/.test(part)) {
+                                        storageKey = part;
+                                        break;
+                                    }
+                                }
+                            }
+                            db.close();
+                            resolve();
+                        });
+                    });
+                } catch (error) {
+                    console.error('Error buscando en BD:', error);
+                }
+            }
+        } else {
+            // Extraer storage key de la ruta
+            if (attachmentPath.startsWith('storage:')) {
+                attachmentPath = attachmentPath.substring(8);
+            }
+            if (attachmentPath.startsWith('attachments:')) {
+                attachmentPath = attachmentPath.substring(12);
+            }
+            
+            const pathParts = attachmentPath.split('/');
+            for (const part of pathParts) {
+                if (/^[A-Z0-9]{8}$/.test(part)) {
+                    storageKey = part;
+                    break;
+                }
+            }
+        }
+        
+        console.log('Storage key:', storageKey, 'Filename:', fileName);
         
         function findFileRecursive(dir, targetFile) {
             try {
@@ -853,36 +895,24 @@ app.get('/api/resolve-pdf', async (req, res) => {
         
         let foundPath = findFileRecursive(BIBLIOTECA_DIR, fileName);
         
-        if (!foundPath && webdavSync) {
-            console.log('Archivo no encontrado localmente, intentando descargar desde WebDAV...');
+        if (!foundPath && webdavSync && storageKey) {
+            console.log('Archivo no encontrado localmente, descargando desde WebDAV...');
             
-            const pathParts = attachmentPath.split('/');
-            let storageKey = null;
-            
-            for (const part of pathParts) {
-                if (/^[A-Z0-9]{8}$/.test(part)) {
-                    storageKey = part;
-                    break;
+            try {
+                await webdavSync.init();
+                const remotePath = '/zotero/storage/' + storageKey + '/' + fileName;
+                const localDir = path.join(BIBLIOTECA_DIR, storageKey);
+                const localPath = path.join(localDir, fileName);
+                
+                console.log('Descargando: ' + remotePath);
+                const success = await webdavSync.downloadPDF(remotePath, localPath);
+                
+                if (success) {
+                    foundPath = localPath;
+                    console.log('PDF descargado desde WebDAV');
                 }
-            }
-            
-            if (storageKey) {
-                try {
-                    await webdavSync.init();
-                    const remotePath = '/zotero/storage/' + storageKey + '/' + fileName;
-                    const localDir = path.join(BIBLIOTECA_DIR, storageKey);
-                    const localPath = path.join(localDir, fileName);
-                    
-                    console.log('Descargando desde WebDAV: ' + remotePath);
-                    const success = await webdavSync.downloadPDF(remotePath, localPath);
-                    
-                    if (success) {
-                        foundPath = localPath;
-                        console.log('PDF descargado exitosamente desde WebDAV');
-                    }
-                } catch (error) {
-                    console.error('Error descargando desde WebDAV:', error.message);
-                }
+            } catch (error) {
+                console.error('Error descargando desde WebDAV:', error.message);
             }
         }
         
@@ -910,6 +940,8 @@ app.get('/api/resolve-pdf', async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+
+
 
 // Cache para estadísticas con timestamp
 let statsCache = {
