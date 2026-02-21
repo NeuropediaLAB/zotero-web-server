@@ -822,29 +822,20 @@ app.get('/api/resolve-pdf', async (req, res) => {
         
         console.log('Resolviendo ruta PDF:', attachmentPath);
         
-        // Extraer filename y buscar storage key en la BD
         const fileName = path.basename(attachmentPath);
-        
-        // Si la ruta es absoluta, buscar el storage key en la BD
         let storageKey = null;
         
+        // Si es ruta absoluta, buscar storage key en la BD
         if (attachmentPath.startsWith('/') || attachmentPath.includes('Biblioteca')) {
-            // Es una ruta absoluta, buscar en la BD
             if (fs.existsSync(ZOTERO_DB)) {
                 try {
                     const db = await openDatabaseWithRetry(ZOTERO_DB);
-                    const query = 'SELECT ia.path FROM itemAttachments ia WHERE ia.path LIKE ?';
+                    const query = 'SELECT i.key FROM itemAttachments ia JOIN items i ON ia.itemID = i.itemID WHERE ia.path = ?';
                     
                     await new Promise((resolve, reject) => {
-                        db.get(query, ['%' + fileName], (err, row) => {
-                            if (!err && row && row.path) {
-                                const pathParts = row.path.split('/');
-                                for (const part of pathParts) {
-                                    if (/^[A-Z0-9]{8}$/.test(part)) {
-                                        storageKey = part;
-                                        break;
-                                    }
-                                }
+                        db.get(query, [attachmentPath], (err, row) => {
+                            if (!err && row && row.key) {
+                                storageKey = row.key;
                             }
                             db.close();
                             resolve();
@@ -855,7 +846,7 @@ app.get('/api/resolve-pdf', async (req, res) => {
                 }
             }
         } else {
-            // Extraer storage key de la ruta
+            // Extraer storage key de formato storage:KEY/file
             if (attachmentPath.startsWith('storage:')) {
                 attachmentPath = attachmentPath.substring(8);
             }
@@ -887,16 +878,14 @@ app.get('/api/resolve-pdf', async (req, res) => {
                         return fullPath;
                     }
                 }
-            } catch (err) {
-                console.error('Error buscando archivo:', err);
-            }
+            } catch (err) {}
             return null;
         }
         
         let foundPath = findFileRecursive(BIBLIOTECA_DIR, fileName);
         
         if (!foundPath && webdavSync && storageKey) {
-            console.log('Archivo no encontrado localmente, descargando desde WebDAV...');
+            console.log('Descargando desde WebDAV...');
             
             try {
                 await webdavSync.init();
@@ -904,21 +893,21 @@ app.get('/api/resolve-pdf', async (req, res) => {
                 const localDir = path.join(BIBLIOTECA_DIR, storageKey);
                 const localPath = path.join(localDir, fileName);
                 
-                console.log('Descargando: ' + remotePath);
+                console.log('WebDAV: ' + remotePath);
                 const success = await webdavSync.downloadPDF(remotePath, localPath);
                 
                 if (success) {
                     foundPath = localPath;
-                    console.log('PDF descargado desde WebDAV');
+                    console.log('PDF descargado OK');
                 }
             } catch (error) {
-                console.error('Error descargando desde WebDAV:', error.message);
+                console.error('Error WebDAV:', error.message);
             }
         }
         
         if (foundPath) {
             const relativePath = path.relative(BIBLIOTECA_DIR, foundPath);
-            console.log('PDF encontrado:', relativePath);
+            console.log('PDF:', relativePath);
             
             res.json({
                 found: true,
@@ -936,10 +925,12 @@ app.get('/api/resolve-pdf', async (req, res) => {
             });
         }
     } catch (error) {
-        console.error('Error resolviendo PDF:', error);
+        console.error('Error:', error);
         res.status(500).json({ error: error.message });
     }
 });
+
+
 
 
 
