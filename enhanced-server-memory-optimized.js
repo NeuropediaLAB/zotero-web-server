@@ -2068,6 +2068,57 @@ async function initServer() {
 
 // Iniciar servidor
 initServer().then(() => {
+
+// Endpoint para verificar disponibilidad de PDFs en WebDAV
+app.get('/api/webdav/availability', async (req, res) => {
+    try {
+        const limit = parseInt(req.query.limit) || 100;
+        
+        // Obtener sample de PDFs de la BD
+        const pdfs = await new Promise((resolve) => {
+            if (!fs.existsSync(ZOTERO_DB)) {
+                resolve([]);
+                return;
+            }
+            
+            const db = new sqlite3.Database(ZOTERO_DB, sqlite3.OPEN_READONLY);
+            db.all(
+                'SELECT i.key, ia.path FROM itemAttachments ia JOIN items i ON ia.itemID = i.itemID WHERE ia.contentType = ? LIMIT ?',
+                ['application/pdf', limit],
+                (err, rows) => {
+                    db.close();
+                    resolve(err ? [] : rows);
+                }
+            );
+        });
+        
+        let available = 0;
+        let notAvailable = 0;
+        
+        // Verificar cada uno en WebDAV
+        for (const pdf of pdfs) {
+            if (pdf.key) {
+                const exists = await webdavSync.fileExists('/zotero/storage/' + pdf.key);
+                if (exists) {
+                    available++;
+                } else {
+                    notAvailable++;
+                }
+            }
+        }
+        
+        res.json({
+            checked: pdfs.length,
+            available,
+            notAvailable,
+            availabilityPercent: pdfs.length > 0 ? Math.round((available / pdfs.length) * 100) : 0
+        });
+        
+    } catch (error) {
+        console.error('Error verificando disponibilidad:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
     app.listen(PORT, () => {
         console.log(`🌟 Servidor iniciado en http://localhost:${PORT}`);
         console.log(`📁 Biblioteca: ${BIBLIOTECA_DIR}`);
