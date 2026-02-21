@@ -1744,7 +1744,7 @@ function getCollectionItems(collectionId, includeSubcollections = true) {
             fetchItems();
         }
         
-        function fetchItems() {
+        async function fetchItems() {
             const placeholders = collectionIds.map(() => '?').join(',');
             const query = `
                 SELECT 
@@ -1778,7 +1778,7 @@ function getCollectionItems(collectionId, includeSubcollections = true) {
                 ORDER BY COALESCE(iv_title.value, 'Sin título')
             `;
             
-            db.all(query, collectionIds, (err, rows) => {
+            db.all(query, collectionIds, async (err, rows) => {
                 db.close();
                 
                 if (err) {
@@ -1787,7 +1787,8 @@ function getCollectionItems(collectionId, includeSubcollections = true) {
                     return;
                 }
                 
-                const items = (rows || []).map(row => {
+                // Primero normalizar paths
+                const normalizedItems = (rows || []).map(row => {
                     // Normalizar attachmentPath a formato storage:filename.pdf
                     let normalizedPath = null;
                     if (row.attachmentPath) {
@@ -1814,7 +1815,32 @@ function getCollectionItems(collectionId, includeSubcollections = true) {
                     };
                 });
                 
-                resolve(items);
+                // Verificar disponibilidad en WebDAV para cada PDF (solo los primeros 100 por performance)
+                const itemsWithAvailability = await Promise.all(normalizedItems.map(async (item) => {
+                    if (item.hasPdf && item.key) {
+                        try {
+                            const available = await webdavSync.fileExists('/zotero/storage/' + item.key);
+                            return {
+                                ...item,
+                                pdfAvailable: available,
+                                pdfStatus: available ? 'available' : 'not_synced'
+                            };
+                        } catch (err) {
+                            return {
+                                ...item,
+                                pdfAvailable: false,
+                                pdfStatus: 'error'
+                            };
+                        }
+                    }
+                    return {
+                        ...item,
+                        pdfAvailable: false,
+                        pdfStatus: 'no_pdf'
+                    };
+                }));
+                
+                resolve(itemsWithAvailability);
             });
         }
     });

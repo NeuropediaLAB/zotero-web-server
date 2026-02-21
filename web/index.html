@@ -1209,7 +1209,11 @@
                 itemHTML += `
                     </div>
                     <div class="result-path">
-                        🗓️ Añadido: ${new Date(entry.dateAdded).toLocaleDateString()} | Estado: ${hasPdf ? '✅ PDF registrado (click para verificar)' : (safeUrl ? '🔗 URL disponible' : '⚠️ Sin PDF ni URL')}
+                        🗓️ Añadido: ${new Date(entry.dateAdded).toLocaleDateString()} | Estado: ${
+                            entry.pdfAvailable ? '✅ PDF disponible en WebDAV' : 
+                            (hasPdf ? '⚠️ PDF no sincronizado' : 
+                            (safeUrl ? '�� URL disponible' : '❌ Sin PDF ni URL'))
+                        }
                     </div>
                 </div>
                 `;
