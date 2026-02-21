@@ -962,11 +962,13 @@ async function getPDFListFromDatabase(limit = 50) {
                 return;
             }
 
-            const pdfList = rows.map(row => ({
-                webdavPath: `/zotero/storage/${row.storageKey}/${path.basename(row.path)}`,
-                storageKey: row.storageKey,
-                filename: path.basename(row.path)
-            }));
+            const pdfList = rows
+                .filter(row => row.path && row.storageKey)  // Filtrar nulls
+                .map(row => ({
+                    webdavPath: `/zotero/storage/${row.storageKey}/${path.basename(row.path)}`,
+                    storageKey: row.storageKey,
+                    filename: path.basename(row.path)
+                }));
 
             console.log(`Encontrados ${pdfList.length} PDFs en BD`);
             resolve(pdfList);
