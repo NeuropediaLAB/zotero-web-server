@@ -925,44 +925,48 @@ async function indexPDFsFromWebDAV(limit = 50, skipExisting = true) {
 }
 
 async function getPDFListFromDatabase(limit = 50) {
-    return new Promise(async (resolve) => {
+    return new Promise((resolve) => {
         if (!fs.existsSync(ZOTERO_DB)) {
             resolve([]);
             return;
         }
 
-        try {
-            const db = await openDatabaseWithRetry(ZOTERO_DB);
-            const query = `
-                SELECT i.key as storageKey, ia.path
-                FROM itemAttachments ia
-                JOIN items i ON ia.itemID = i.itemID
-                WHERE ia.contentType = 'application/pdf'
-                LIMIT ?
-            `;
+        const db = new sqlite3.Database(ZOTERO_DB, sqlite3.OPEN_READONLY, (err) => {
+            if (err) {
+                console.error('Error abriendo BD:', err);
+                resolve([]);
+                return;
+            }
+        });
 
-            db.all(query, [limit], (err, rows) => {
-                db.close();
-                
-                if (err) {
-                    console.error('Error consultando PDFs:', err);
-                    resolve([]);
-                    return;
-                }
+        const query = `
+            SELECT i.key as storageKey, ia.path
+            FROM itemAttachments ia
+            JOIN items i ON ia.itemID = i.itemID
+            WHERE ia.contentType = 'application/pdf'
+            LIMIT ?
+        `;
 
-                const pdfList = rows.map(row => ({
-                    storageKey: row.storageKey,
-                    filename: path.basename(row.path)
-                }));
+        db.all(query, [limit], (err, rows) => {
+            db.close();
+            
+            if (err) {
+                console.error('Error consultando PDFs:', err);
+                resolve([]);
+                return;
+            }
 
-                resolve(pdfList);
-            });
-        } catch (error) {
-            console.error('Error abriendo BD:', error);
-            resolve([]);
-        }
+            const pdfList = rows.map(row => ({
+                storageKey: row.storageKey,
+                filename: path.basename(row.path)
+            }));
+
+            console.log(`Encontrados ${pdfList.length} PDFs en BD`);
+            resolve(pdfList);
+        });
     });
 }
+
 
 async function indexPDFWithOCR(pdfPath) {
     return new Promise((resolve, reject) => {
