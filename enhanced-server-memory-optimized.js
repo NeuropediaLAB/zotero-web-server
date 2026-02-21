@@ -36,7 +36,7 @@ if (process.env.WEBDAV_ENABLED === 'true') {
         webdavUrl: process.env.WEBDAV_URL || 'https://owncloud.serviciosylaboratoriodomestico.site/remote.php/dav/files/arkantu',
         username: process.env.WEBDAV_USERNAME || 'arkantu',
         password: process.env.WEBDAV_PASSWORD || 'akelarre',
-        localBibliotecaDir: BIBLIOTECA_DIR,
+        tempCacheDir: path.join(__dirname, "data", "cache", "pdfs"),
         localZoteroDir: path.dirname(ZOTERO_DB)
     });
     console.log('WebDAV habilitado');
@@ -801,6 +801,10 @@ function countPDFsInDirectory(dir, maxDepth = 3, currentDepth = 0) {
 // WEBDAV OCR INDEXING MODULE
 // ============================================================================
 
+// ============================================================================
+// WEBDAV-ONLY INDEXING MODULE
+// ============================================================================
+
 let indexingState = {
     isIndexing: false,
     currentPDF: null,
@@ -812,6 +816,55 @@ let indexingState = {
     errors: []
 };
 
+// Función para obtener lista de PDFs desde BD con info WebDAV
+async function getPDFListFromDatabase(limit = 50, offset = 0) {
+    return new Promise((resolve) => {
+        if (!fs.existsSync(ZOTERO_DB)) {
+            resolve([]);
+            return;
+        }
+
+        const db = new sqlite3.Database(ZOTERO_DB, sqlite3.OPEN_READONLY, (err) => {
+            if (err) {
+                console.error('Error abriendo BD:', err);
+                resolve([]);
+                return;
+            }
+        });
+
+        const query = `
+            SELECT 
+                i.key as storageKey,
+                ia.path,
+                ia.itemID
+            FROM itemAttachments ia
+            JOIN items i ON ia.itemID = i.itemID
+            WHERE ia.contentType = 'application/pdf'
+            LIMIT ? OFFSET ?
+        `;
+
+        db.all(query, [limit, offset], (err, rows) => {
+            db.close();
+            
+            if (err) {
+                console.error('Error consultando PDFs:', err);
+                resolve([]);
+                return;
+            }
+
+            const pdfList = rows.map(row => ({
+                storageKey: row.storageKey,
+                filename: path.basename(row.path),
+                webdavPath: `/zotero/storage/${row.storageKey}/${path.basename(row.path)}`,
+                itemID: row.itemID
+            }));
+
+            resolve(pdfList);
+        });
+    });
+}
+
+// Función para indexar PDFs directamente desde WebDAV
 async function indexPDFsFromWebDAV(limit = 50, skipExisting = true) {
     if (indexingState.isIndexing) {
         return { error: 'Ya hay una indexación en curso' };
@@ -833,13 +886,13 @@ async function indexPDFsFromWebDAV(limit = 50, skipExisting = true) {
     try {
         await webdavSync.init();
         
-        // Obtener lista de PDFs desde BD
-        const pdfList = await getPDFListFromDatabase(limit);
+        // Obtener lista de PDFs desde BD con paths WebDAV
+        const pdfList = await getPDFListFromDatabase(limit, 0);
         indexingState.total = pdfList.length;
         
-        console.log(`�� Total de PDFs a procesar: ${pdfList.length}`);
+        console.log(`📚 Total de PDFs a procesar: ${pdfList.length}`);
 
-        // Procesar en lotes pequeños para no saturar memoria
+        // Procesar en lotes de 5 PDFs
         const batchSize = 5;
         for (let i = 0; i < pdfList.length; i += batchSize) {
             const batch = pdfList.slice(i, Math.min(i + batchSize, pdfList.length));
@@ -848,45 +901,31 @@ async function indexPDFsFromWebDAV(limit = 50, skipExisting = true) {
                 try {
                     indexingState.currentPDF = pdfInfo.filename;
                     
-                    // Verificar si ya está indexado
-                    const possiblePaths = [
-                        path.join(BIBLIOTECA_DIR, pdfInfo.storageKey, pdfInfo.filename),
-                        path.join(BIBLIOTECA_DIR, pdfInfo.filename)
-                    ];
-                    
-                    if (skipExisting) {
-                        for (const p of possiblePaths) {
-                            if (pdfTextIndex.has(p)) {
-                                console.log(`⏭️  Ya indexado: ${pdfInfo.filename}`);
-                                indexingState.processed++;
-                                return;
-                            }
-                        }
+                    // Verificar si ya está indexado usando webdavPath como key
+                    if (skipExisting && pdfTextIndex.has(pdfInfo.webdavPath)) {
+                        console.log(`⏭️  Ya indexado: ${pdfInfo.filename}`);
+                        indexingState.processed++;
+                        return;
                     }
 
-                    // Descargar PDF desde WebDAV
-                    const remotePath = '/zotero/storage/' + pdfInfo.storageKey + '/' + pdfInfo.filename;
-                    const localDir = path.join(BIBLIOTECA_DIR, pdfInfo.storageKey);
-                    const localPath = path.join(localDir, pdfInfo.filename);
+                    // Descargar PDF al cache temporal
+                    const localPath = await webdavSync.downloadPDFToCache(pdfInfo.webdavPath);
                     
-                    console.log(`⬇️  Descargando: ${pdfInfo.filename}`);
-                    const downloaded = await webdavSync.downloadPDF(remotePath, localPath);
-                    
-                    if (downloaded && fs.existsSync(localPath)) {
+                    if (localPath && fs.existsSync(localPath)) {
                         // Indexar el PDF con OCR
-                        console.log(`🔎 Extrayendo texto con OCR: ${pdfInfo.filename}`);
-                        await indexPDFWithOCR(localPath);
+                        console.log(`🔎 Extrayendo texto: ${pdfInfo.filename}`);
+                        await indexPDFWithOCR(localPath, pdfInfo.webdavPath);
                         indexingState.success++;
                         console.log(`✅ Indexado: ${pdfInfo.filename}`);
                     } else {
                         indexingState.failed++;
                         indexingState.errors.push(`No se pudo descargar: ${pdfInfo.filename}`);
-                        console.log(`❌ Falló descarga: ${pdfInfo.filename}`);
+                        console.log(`❌ Falló: ${pdfInfo.filename}`);
                     }
                 } catch (error) {
                     indexingState.failed++;
                     indexingState.errors.push(`Error ${pdfInfo.filename}: ${error.message}`);
-                    console.error(`❌ Error indexando ${pdfInfo.filename}:`, error.message);
+                    console.error(`❌ Error: ${pdfInfo.filename}:`, error.message);
                 }
                 
                 indexingState.processed++;
@@ -895,18 +934,21 @@ async function indexPDFsFromWebDAV(limit = 50, skipExisting = true) {
             // Pausa entre lotes
             await new Promise(resolve => setTimeout(resolve, 1000));
             
-            // Guardar índice periódicamente
-            if (i % 10 === 0) {
+            // Guardar índice cada 10 PDFs
+            if ((i + batchSize) % 10 === 0) {
                 savePDFIndex();
-                console.log(`💾 Progreso guardado: ${indexingState.processed}/${indexingState.total}`);
+                console.log(`💾 Progreso: ${indexingState.processed}/${indexingState.total}`);
             }
         }
 
         // Guardar índice final
         savePDFIndex();
+        
+        // Limpiar cache viejo
+        await webdavSync.cleanOldCache();
 
         const duration = Math.round((Date.now() - indexingState.startTime.getTime()) / 1000);
-        console.log(`✅ Indexación completada en ${duration}s: ${indexingState.success} exitosos, ${indexingState.failed} fallidos`);
+        console.log(`✅ Indexación completada en ${duration}s: ${indexingState.success} OK, ${indexingState.failed} fallos`);
 
         indexingState.isIndexing = false;
         return {
@@ -919,72 +961,28 @@ async function indexPDFsFromWebDAV(limit = 50, skipExisting = true) {
 
     } catch (error) {
         indexingState.isIndexing = false;
-        console.error('❌ Error en indexación WebDAV:', error);
+        console.error('❌ Error indexación:', error);
         return { error: error.message };
     }
 }
 
-async function getPDFListFromDatabase(limit = 50) {
-    return new Promise((resolve) => {
-        if (!fs.existsSync(ZOTERO_DB)) {
-            resolve([]);
-            return;
-        }
-
-        const db = new sqlite3.Database(ZOTERO_DB, sqlite3.OPEN_READONLY, (err) => {
-            if (err) {
-                console.error('Error abriendo BD:', err);
-                resolve([]);
-                return;
-            }
-        });
-
-        const query = `
-            SELECT i.key as storageKey, ia.path
-            FROM itemAttachments ia
-            JOIN items i ON ia.itemID = i.itemID
-            WHERE ia.contentType = 'application/pdf'
-            LIMIT ?
-        `;
-
-        db.all(query, [limit], (err, rows) => {
-            db.close();
-            
-            if (err) {
-                console.error('Error consultando PDFs:', err);
-                resolve([]);
-                return;
-            }
-
-            const pdfList = rows.map(row => ({
-                storageKey: row.storageKey,
-                filename: path.basename(row.path)
-            }));
-
-            console.log(`Encontrados ${pdfList.length} PDFs en BD`);
-            resolve(pdfList);
-        });
-    });
-}
-
-
-async function indexPDFWithOCR(pdfPath) {
+// Indexar PDF usando webdavPath como key
+async function indexPDFWithOCR(localPath, webdavPath) {
     return new Promise((resolve, reject) => {
-        if (!fs.existsSync(pdfPath)) {
+        if (!fs.existsSync(localPath)) {
             reject(new Error('PDF no encontrado'));
             return;
         }
 
-        // Usar la función existente extractPDFText que incluye OCR
-        extractPDFText(pdfPath, (err, text) => {
+        extractPDFText(localPath, (err, text) => {
             if (err) {
-                console.error(`Error extrayendo texto de ${path.basename(pdfPath)}:`, err.message);
+                console.error(`Error extrayendo texto:`, err.message);
                 reject(err);
             } else {
-                // Guardar en el índice (limitar a 10k caracteres)
+                // Guardar en índice usando webdavPath como key
                 const truncatedText = text.substring(0, 10000);
-                pdfTextIndex.set(pdfPath, truncatedText);
-                cacheKeys.push(pdfPath);
+                pdfTextIndex.set(webdavPath, truncatedText);
+                cacheKeys.push(webdavPath);
                 
                 // Limpiar cache si está muy grande
                 if (cacheKeys.length > CACHE_LIMIT) {
@@ -1019,849 +1017,6 @@ function getIndexingStatus() {
 }
 
 
-// API Routes
-
-
-// WebDAV Basic Endpoints
-app.post('/api/webdav/sync-database', async (req, res) => {
-    try {
-        const result = await webdavSync.syncDatabase();
-        res.json(result ? { success: true, message: 'DB sincronizada' } : { error: 'Error sync DB' });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-app.post('/api/webdav/sync-pdfs', async (req, res) => {
-    try {
-        const limit = parseInt(req.body.limit) || 100;
-        const result = await webdavSync.syncAllPDFs(limit);
-        res.json(result);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-app.get('/api/webdav/status', async (req, res) => {
-    try {
-        const connected = await webdavSync.testConnection();
-        res.json({ enabled: true, connected: connected });
-    } catch (error) {
-        res.json({ enabled: true, connected: false, error: error.message });
-    }
-});
-
-
-
-// Endpoint para iniciar indexación de PDFs desde WebDAV
-app.post('/api/webdav/index-pdfs', async (req, res) => {
-    try {
-        if (!webdavSync) {
-            return res.status(503).json({ error: 'WebDAV no habilitado' });
-        }
-
-        const limit = parseInt(req.body.limit) || 50;
-        const skipExisting = req.body.skipExisting !== false;
-
-        console.log('Iniciando indexación WebDAV:', { limit, skipExisting });
-
-        // Iniciar indexación en background
-        indexPDFsFromWebDAV(limit, skipExisting).then(result => {
-            console.log('Indexación finalizada:', result);
-        }).catch(error => {
-            console.error('Error en indexación:', error);
-        });
-
-        res.json({
-            success: true,
-            message: 'Indexación iniciada',
-            status: getIndexingStatus()
-        });
-    } catch (error) {
-        console.error('Error iniciando indexación:', error);
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// Endpoint para obtener estado de indexación
-app.get('/api/webdav/indexing-status', (req, res) => {
-    try {
-        const status = getIndexingStatus();
-        res.json(status);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// Endpoint para detener indexación
-app.post('/api/webdav/stop-indexing', (req, res) => {
-    try {
-        if (indexingState.isIndexing) {
-            indexingState.isIndexing = false;
-            res.json({ success: true, message: 'Indexación detenida' });
-        } else {
-            res.json({ success: false, message: 'No hay indexación en curso' });
-        }
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-
-// Cache para estadísticas con timestamp
-let statsCache = {
-    data: null,
-    timestamp: 0,
-    ttl: 10000 // Cache válido por 10 segundos
-};
-
-app.get('/api/stats', async (req, res) => {
-    try {
-        const now = Date.now();
-        
-        // Si el cache es válido, usarlo
-        if (statsCache.data && (now - statsCache.timestamp) < statsCache.ttl) {
-            return res.json(statsCache.data);
-        }
-        
-        // Actualizar conteo de PDFs desde BD
-        try {
-            const dbCount = await countPDFsFromDatabase();
-            stats.totalPDFs = dbCount;
-        } catch (error) {
-            console.error('Error actualizando conteo de PDFs:', error);
-            // Mantener el valor anterior si hay error
-        }
-        
-        // Actualizar estadísticas
-        stats.indexedPDFs = pdfTextIndex.size;
-        stats.syncStatus = stats.isIndexing ? 'Indexando...' : 'Listo';
-        
-        // Solo actualizar lastSync cuando realmente se actualizaron las estadísticas
-        if (!stats.lastSync || (now - new Date(stats.lastSync).getTime()) > 5000) {
-            stats.lastSync = new Date();
-        }
-        
-        const currentStats = {
-            ...stats,
-            memoryUsage: process.memoryUsage()
-        };
-        
-        // Actualizar cache
-        statsCache.data = currentStats;
-        statsCache.timestamp = now;
-        
-        res.json(currentStats);
-    } catch (error) {
-        console.error('Error en /api/stats:', error);
-        // Enviar stats básicos en caso de error
-        res.json({
-            ...stats,
-            indexedPDFs: pdfTextIndex.size,
-            lastSync: stats.lastSync || new Date(),
-            syncStatus: 'Error',
-            memoryUsage: process.memoryUsage()
-        });
-    }
-});
-
-// Endpoint para obtener estructura de carpetas
-app.get('/api/folder-tree', (req, res) => {
-    try {
-        console.log('📁 Generando árbol de carpetas...');
-        const folderTree = buildFolderTree(BIBLIOTECA_DIR);
-        res.json({
-            root: {
-                name: 'Biblioteca',
-                path: '',
-                type: 'folder',
-                pdfCount: countPDFsInDirectory(BIBLIOTECA_DIR),
-                children: folderTree
-            }
-        });
-    } catch (error) {
-        console.error('Error generando árbol de carpetas:', error);
-        res.status(500).json({ error: 'Error generando árbol de carpetas' });
-    }
-});
-
-// Endpoint para búsqueda de texto en PDFs
-app.get('/api/search-text', (req, res) => {
-    try {
-        // Aceptar tanto 'q' como 'query' para compatibilidad
-        const query = req.query.q || req.query.query;
-        const limit = Math.min(parseInt(req.query.limit) || 50, 100);
-        
-        if (!query) {
-            return res.json({ results: [], total: 0 });
-        }
-
-        const results = searchInPDFs(query, limit);
-        res.json({ 
-            results, 
-            total: results.length,
-            query,
-            limited: results.length === limit
-        });
-    } catch (error) {
-        console.error('Error en búsqueda de texto:', error);
-        res.status(500).json({ error: 'Error en búsqueda de texto' });
-    }
-});
-
-app.get('/api/search', (req, res) => {
-    try {
-        const query = req.query.q;
-        const limit = Math.min(parseInt(req.query.limit) || 50, 100);
-        
-        if (!query) {
-            return res.json({ results: [], total: 0 });
-        }
-
-        // Crear clave de cache
-        const cacheKey = `${query.toLowerCase()}_${limit}`;
-        
-        // Verificar cache
-        if (searchCache.has(cacheKey)) {
-            const cached = searchCache.get(cacheKey);
-            // Verificar TTL
-            if (Date.now() - cached.timestamp < SEARCH_CACHE_TTL) {
-                console.log('🎯 Búsqueda desde cache:', query);
-                return res.json(cached.data);
-            } else {
-                searchCache.delete(cacheKey);
-            }
-        }
-
-        const results = searchInPDFs(query, limit);
-        const response = { 
-            results, 
-            total: results.length,
-            query,
-            limited: results.length === limit,
-            cached: false
-        };
-        
-        // Guardar en cache
-        searchCache.set(cacheKey, {
-            data: { ...response, cached: true },
-            timestamp: Date.now()
-        });
-        
-        // Limpiar cache viejo si es muy grande
-        if (searchCache.size > SEARCH_CACHE_LIMIT) {
-            const oldestKey = searchCache.keys().next().value;
-            searchCache.delete(oldestKey);
-        }
-        
-        res.json(response);
-    } catch (error) {
-        console.error('Error en búsqueda:', error);
-        res.status(500).json({ error: 'Error en búsqueda' });
-    }
-});
-
-// API para IA (ChatGPT/GPT Actions) - Búsqueda semántica con contexto completo
-app.post('/api/ai/search', (req, res) => {
-    try {
-        const { query, max_results = 10, include_full_text = false } = req.body;
-        
-        if (!query) {
-            return res.status(400).json({ 
-                error: 'Query parameter is required',
-                usage: 'POST /api/ai/search with body: { "query": "your search term", "max_results": 10, "include_full_text": false }'
-            });
-        }
-
-        const results = searchInPDFs(query, max_results);
-        
-        // Enriquecer resultados para IA
-        const enrichedResults = results.map(result => {
-            const baseResult = {
-                title: result.name || result.file,
-                relevance_score: result.score,
-                context: result.context || result.snippet || result.preview,
-                source_type: result.source,
-                is_indexed: result.indexed || false,
-                file_path: result.path
-            };
-            
-            // Si se solicita texto completo y está indexado, incluirlo
-            if (include_full_text && result.indexed && pdfTextIndex.has(result.path)) {
-                const fullData = pdfTextIndex.get(result.path);
-                baseResult.full_text = fullData.text;
-            }
-            
-            return baseResult;
-        });
-        
-        res.json({
-            query: query,
-            total_results: enrichedResults.length,
-            results: enrichedResults,
-            metadata: {
-                timestamp: new Date().toISOString(),
-                total_indexed_documents: pdfTextIndex.size,
-                search_type: 'semantic'
-            }
-        });
-    } catch (error) {
-        console.error('Error en API de IA:', error);
-        res.status(500).json({ error: 'Internal server error', message: error.message });
-    }
-});
-
-// API para IA - Obtener documento completo por ruta
-app.post('/api/ai/document', (req, res) => {
-    try {
-        const { path: docPath } = req.body;
-        
-        if (!docPath) {
-            return res.status(400).json({ 
-                error: 'Path parameter is required',
-                usage: 'POST /api/ai/document with body: { "path": "/path/to/document.pdf" }'
-            });
-        }
-
-        if (!pdfTextIndex.has(docPath)) {
-            return res.status(404).json({ 
-                error: 'Document not found or not indexed',
-                path: docPath 
-            });
-        }
-        
-        const docData = pdfTextIndex.get(docPath);
-        
-        res.json({
-            path: docPath,
-            filename: path.basename(docPath),
-            indexed_at: docData.indexedAt || 'unknown',
-            text: docData.text,
-            has_text: docData.hasText || false,
-            word_count: docData.text ? docData.text.split(/\s+/).length : 0
-        });
-    } catch (error) {
-        console.error('Error obteniendo documento:', error);
-        res.status(500).json({ error: 'Internal server error', message: error.message });
-    }
-});
-
-// API para IA - Listar documentos indexados
-app.get('/api/ai/documents', (req, res) => {
-    try {
-        const limit = Math.min(parseInt(req.query.limit) || 100, 1000);
-        const offset = parseInt(req.query.offset) || 0;
-        
-        const allDocs = Array.from(pdfTextIndex.entries())
-            .map(([path, data]) => ({
-                path: path,
-                filename: path.split('/').pop(),
-                indexed: data.hasText || false,
-                indexed_at: data.indexedAt || 'unknown',
-                word_count: data.text ? data.text.split(/\s+/).length : 0
-            }))
-            .slice(offset, offset + limit);
-        
-        res.json({
-            total: pdfTextIndex.size,
-            offset: offset,
-            limit: limit,
-            documents: allDocs
-        });
-    } catch (error) {
-        console.error('Error listando documentos:', error);
-        res.status(500).json({ error: 'Internal server error', message: error.message });
-    }
-});
-
-app.get('/api/pdfs', (req, res) => {
-    try {
-        const page = parseInt(req.query.page) || 1;
-        const limit = Math.min(parseInt(req.query.limit) || 50, 100);
-        const folder = req.query.folder;
-        
-        const result = getLibraryPDFs(BIBLIOTECA_DIR, page, limit, folder);
-        res.json(result);
-    } catch (error) {
-        console.error('Error listando PDFs:', error);
-        res.status(500).json({ error: 'Error listando PDFs' });
-    }
-});
-
-// Endpoint para resolver ruta de PDF desde Zotero attachment path
-app.get('/api/resolve-pdf', (req, res) => {
-    try {
-        let attachmentPath = req.query.path;
-        
-        if (!attachmentPath) {
-            return res.status(400).json({ error: 'Path parameter is required' });
-        }
-        
-        console.log('📄 Resolviendo ruta PDF:', attachmentPath);
-        
-        // Manejar formato "storage:KEY/filename.pdf"
-        if (attachmentPath.startsWith('storage:')) {
-            attachmentPath = attachmentPath.substring(8); // Remover "storage:"
-        }
-        
-        // Manejar formato "attachments:KEY/filename.pdf"  
-        if (attachmentPath.startsWith('attachments:')) {
-            attachmentPath = attachmentPath.substring(12); // Remover "attachments:"
-        }
-        
-        // Extraer el nombre del archivo
-        const fileName = path.basename(attachmentPath);
-        
-        // Buscar el archivo en BIBLIOTECA_DIR recursivamente
-        function findFileRecursive(dir, targetFile) {
-            try {
-                const items = fs.readdirSync(dir);
-                
-                for (const item of items) {
-                    const fullPath = path.join(dir, item);
-                    const stats = fs.statSync(fullPath);
-                    
-                    if (stats.isDirectory()) {
-                        const found = findFileRecursive(fullPath, targetFile);
-                        if (found) return found;
-                    } else if (item === targetFile) {
-                        return fullPath;
-                    }
-                }
-            } catch (err) {
-                console.error('Error buscando archivo:', err);
-            }
-            return null;
-        }
-        
-        const foundPath = findFileRecursive(BIBLIOTECA_DIR, fileName);
-        
-        if (foundPath) {
-            // Convertir a ruta relativa para el servidor web
-            const relativePath = path.relative(BIBLIOTECA_DIR, foundPath);
-            console.log('✅ PDF encontrado:', relativePath);
-            
-            res.json({
-                found: true,
-                filename: fileName,
-                relativePath: relativePath,
-                webPath: `/biblioteca/${relativePath}`,
-                originalPath: attachmentPath
-            });
-        } else {
-            console.log('❌ PDF no encontrado:', fileName);
-            res.status(404).json({
-                found: false,
-                filename: fileName,
-                error: 'PDF file not found in biblioteca',
-                originalPath: attachmentPath
-            });
-        }
-    } catch (error) {
-        console.error('Error resolviendo PDF:', error);
-        res.status(500).json({ error: 'Error resolving PDF path', message: error.message });
-    }
-});
-
-// Ruta para servir archivos PDF
-app.get('/pdf/:filename(*)', (req, res) => {
-    try {
-        const filename = req.params.filename;
-        const filePath = path.join(BIBLIOTECA_DIR, filename);
-        
-        if (!fs.existsSync(filePath)) {
-            return res.status(404).json({ error: 'Archivo no encontrado' });
-        }
-        
-        res.sendFile(filePath);
-    } catch (error) {
-        console.error('Error sirviendo PDF:', error);
-        res.status(500).json({ error: 'Error sirviendo archivo' });
-    }
-});
-
-// Ruta alternativa /biblioteca/ para servir archivos PDF
-app.get('/biblioteca/:filename(*)', (req, res) => {
-    try {
-        const filename = req.params.filename;
-        const filePath = path.join(BIBLIOTECA_DIR, filename);
-        
-        if (!fs.existsSync(filePath)) {
-            return res.status(404).json({ error: 'Archivo no encontrado' });
-        }
-        
-        res.sendFile(filePath);
-    } catch (error) {
-        console.error('Error sirviendo PDF:', error);
-        res.status(500).json({ error: 'Error sirviendo archivo' });
-    }
-});
-
-// Endpoint para sincronización manual de archivos
-app.post('/api/sync', (req, res) => {
-    try {
-        console.log('🔄 Iniciando sincronización manual...');
-        
-        if (stats.isIndexing) {
-            return res.status(409).json({ 
-                error: 'Indexación ya en progreso',
-                isIndexing: true,
-                progress: indexingProgress
-            });
-        }
-
-        const continued = continueIndexing();
-        
-        if (continued) {
-            res.json({ 
-                success: true,
-                message: 'Sincronización iniciada',
-                isIndexing: stats.isIndexing,
-                progress: indexingProgress,
-                totalPDFs: stats.totalPDFs,
-                indexedPDFs: stats.indexedPDFs
-            });
-        } else {
-            res.json({
-                success: true,
-                message: 'Todos los archivos ya están indexados',
-                isIndexing: false,
-                totalPDFs: stats.totalPDFs,
-                indexedPDFs: stats.indexedPDFs
-            });
-        }
-        
-    } catch (error) {
-        console.error('Error en sincronización:', error);
-        res.status(500).json({ error: 'Error iniciando sincronización' });
-    }
-});
-
-// Endpoint para obtener entradas de Zotero sin PDF
-app.get('/api/zotero/no-pdf', async (req, res) => {
-    try {
-        const limit = Math.min(parseInt(req.query.limit) || 100, 500);
-        const entries = await getZoteroEntriesWithoutPDF(limit);
-        res.json({ 
-            entries,
-            total: entries.length
-        });
-    } catch (error) {
-        console.error('Error obteniendo entradas sin PDF:', error);
-        res.status(500).json({ error: 'Error obteniendo entradas sin PDF' });
-    }
-});
-
-// Función para obtener el árbol de colecciones
-function getCollectionsTree() {
-    return new Promise((resolve, reject) => {
-        if (!fs.existsSync(ZOTERO_DB)) {
-            resolve([]);
-            return;
-        }
-        
-        const db = new sqlite3.Database(ZOTERO_DB, sqlite3.OPEN_READONLY, (err) => {
-            if (err) {
-                console.error('Error abriendo DB Zotero:', err);
-                resolve([]);
-                return;
-            }
-        });
-        
-        const query = `
-            SELECT 
-                collectionID,
-                collectionName,
-                parentCollectionID
-            FROM collections
-            WHERE collectionID NOT IN (SELECT collectionID FROM deletedCollections)
-            ORDER BY collectionName
-        `;
-        
-        db.all(query, [], (err, rows) => {
-            db.close();
-            
-            if (err) {
-                console.error('Error consultando colecciones:', err);
-                resolve([]);
-                return;
-            }
-            
-            // Construir árbol de colecciones
-            const collectionsMap = new Map();
-            const rootCollections = [];
-            
-            // Primera pasada: crear todos los nodos
-            rows.forEach(row => {
-                collectionsMap.set(row.collectionID, {
-                    id: row.collectionID,
-                    name: row.collectionName,
-                    parentId: row.parentCollectionID,
-                    children: []
-                });
-            });
-            
-            // Segunda pasada: construir jerarquía
-            rows.forEach(row => {
-                const collection = collectionsMap.get(row.collectionID);
-                if (row.parentCollectionID && collectionsMap.has(row.parentCollectionID)) {
-                    collectionsMap.get(row.parentCollectionID).children.push(collection);
-                } else {
-                    rootCollections.push(collection);
-                }
-            });
-            
-            resolve(rootCollections);
-        });
-    });
-}
-
-// Función para obtener items de una colección (incluyendo subcolecciones)
-function getCollectionItems(collectionId, includeSubcollections = true) {
-    return new Promise((resolve, reject) => {
-        if (!fs.existsSync(ZOTERO_DB)) {
-            resolve([]);
-            return;
-        }
-        
-        const db = new sqlite3.Database(ZOTERO_DB, sqlite3.OPEN_READONLY, (err) => {
-            if (err) {
-                console.error('Error abriendo DB Zotero:', err);
-                resolve([]);
-                return;
-            }
-        });
-        
-        // Primero obtener IDs de colección (incluyendo subcolecciones si es necesario)
-        let collectionIds = [collectionId];
-        
-        if (includeSubcollections) {
-            const getSubcollections = (parentId) => {
-                return new Promise((res) => {
-                    db.all(
-                        'SELECT collectionID FROM collections WHERE parentCollectionID = ?',
-                        [parentId],
-                        (err, rows) => {
-                            if (err || !rows) {
-                                res([]);
-                                return;
-                            }
-                            res(rows.map(r => r.collectionID));
-                        }
-                    );
-                });
-            };
-            
-            const getAllSubcollections = async (parentId) => {
-                const direct = await getSubcollections(parentId);
-                let all = [...direct];
-                for (const id of direct) {
-                    const subs = await getAllSubcollections(id);
-                    all = all.concat(subs);
-                }
-                return all;
-            };
-            
-            getAllSubcollections(collectionId).then(subIds => {
-                collectionIds = collectionIds.concat(subIds);
-                fetchItems();
-            });
-        } else {
-            fetchItems();
-        }
-        
-        function fetchItems() {
-            const placeholders = collectionIds.map(() => '?').join(',');
-            const query = `
-                SELECT 
-                    i.itemID,
-                    i.dateAdded,
-                    i.dateModified,
-                    COALESCE(iv_title.value, 'Sin título') as title,
-                    COALESCE(iv_date.value, '') as year,
-                    it.typeName as type,
-                    GROUP_CONCAT(COALESCE(c.firstName || ' ' || c.lastName, ''), ', ') as authors,
-                    ia.path as attachmentPath,
-                    ci.collectionID
-                FROM collectionItems ci
-                JOIN items i ON ci.itemID = i.itemID
-                LEFT JOIN itemTypes it ON i.itemTypeID = it.itemTypeID
-                LEFT JOIN itemData id_title ON i.itemID = id_title.itemID 
-                    AND id_title.fieldID = (SELECT fieldID FROM fields WHERE fieldName = 'title')
-                LEFT JOIN itemDataValues iv_title ON id_title.valueID = iv_title.valueID
-                LEFT JOIN itemData id_date ON i.itemID = id_date.itemID 
-                    AND id_date.fieldID = (SELECT fieldID FROM fields WHERE fieldName = 'date')
-                LEFT JOIN itemDataValues iv_date ON id_date.valueID = iv_date.valueID
-                LEFT JOIN itemCreators ic ON i.itemID = ic.itemID
-                LEFT JOIN creators c ON ic.creatorID = c.creatorID
-                LEFT JOIN itemAttachments ia ON i.itemID = ia.parentItemID 
-                    AND ia.contentType = 'application/pdf'
-                WHERE ci.collectionID IN (${placeholders})
-                    AND i.itemID NOT IN (SELECT itemID FROM deletedItems)
-                    AND it.typeName NOT IN ('attachment', 'note', 'annotation')
-                    AND it.typeName IS NOT NULL
-                GROUP BY i.itemID
-                ORDER BY COALESCE(iv_title.value, 'Sin título')
-            `;
-            
-            db.all(query, collectionIds, (err, rows) => {
-                db.close();
-                
-                if (err) {
-                    console.error('Error consultando items de colección:', err);
-                    resolve([]);
-                    return;
-                }
-                
-                const items = (rows || []).map(row => ({
-                    ...row,
-                    hasPdf: row.attachmentPath ? true : false,
-                    pdfPath: row.attachmentPath || null
-                }));
-                
-                resolve(items);
-            });
-        }
-    });
-}
-
-// Endpoint para obtener árbol de colecciones
-app.get('/api/zotero/collections', async (req, res) => {
-    try {
-        const collections = await getCollectionsTree();
-        res.json({ 
-            collections,
-            total: collections.length
-        });
-    } catch (error) {
-        console.error('Error obteniendo colecciones:', error);
-        res.status(500).json({ error: 'Error obteniendo colecciones' });
-    }
-});
-
-// Endpoint para buscar colecciones por nombre o por contenido de items
-app.get('/api/zotero/collections/search', async (req, res) => {
-    try {
-        const query = req.query.q || '';
-        if (!query || query.trim().length < 2) {
-            res.json({ collections: [], total: 0 });
-            return;
-        }
-        
-        const searchTerm = query.toLowerCase();
-        
-        // Buscar colecciones que coincidan por nombre o que contengan items con ese título
-        const matchingCollections = await searchCollectionsByNameOrContent(searchTerm);
-        
-        res.json({ 
-            collections: matchingCollections,
-            total: matchingCollections.length,
-            query: query
-        });
-    } catch (error) {
-        console.error('Error buscando colecciones:', error);
-        res.status(500).json({ error: 'Error buscando colecciones' });
-    }
-});
-
-// Función para buscar colecciones por nombre o contenido
-function searchCollectionsByNameOrContent(searchTerm) {
-    return new Promise((resolve, reject) => {
-        if (!fs.existsSync(ZOTERO_DB)) {
-            resolve([]);
-            return;
-        }
-        
-        const db = new sqlite3.Database(ZOTERO_DB, sqlite3.OPEN_READONLY, (err) => {
-            if (err) {
-                console.error('Error abriendo DB Zotero:', err);
-                resolve([]);
-                return;
-            }
-        });
-        
-        const query = `
-            SELECT DISTINCT
-                c.collectionID,
-                c.collectionName,
-                c.parentCollectionID,
-                COUNT(DISTINCT i.itemID) as itemCount
-            FROM collections c
-            LEFT JOIN collectionItems ci ON c.collectionID = ci.collectionID
-            LEFT JOIN items i ON ci.itemID = i.itemID
-            LEFT JOIN itemData id_title ON i.itemID = id_title.itemID 
-                AND id_title.fieldID = (SELECT fieldID FROM fields WHERE fieldName = 'title')
-            LEFT JOIN itemDataValues iv_title ON id_title.valueID = iv_title.valueID
-            WHERE c.collectionID NOT IN (SELECT collectionID FROM deletedCollections)
-                AND (
-                    LOWER(c.collectionName) LIKE '%' || ? || '%'
-                    OR LOWER(COALESCE(iv_title.value, '')) LIKE '%' || ? || '%'
-                )
-            GROUP BY c.collectionID
-            ORDER BY 
-                CASE WHEN LOWER(c.collectionName) LIKE '%' || ? || '%' THEN 0 ELSE 1 END,
-                itemCount DESC,
-                c.collectionName
-            LIMIT 50
-        `;
-        
-        db.all(query, [searchTerm, searchTerm, searchTerm], (err, rows) => {
-            db.close();
-            
-            if (err) {
-                console.error('Error buscando colecciones:', err);
-                resolve([]);
-                return;
-            }
-            
-            const results = (rows || []).map(row => ({
-                id: row.collectionID,
-                name: row.collectionName,
-                parentId: row.parentCollectionID,
-                itemCount: row.itemCount,
-                matchType: row.collectionName.toLowerCase().includes(searchTerm) ? 'name' : 'content'
-            }));
-            
-            resolve(results);
-        });
-    });
-}
-
-// Endpoint para obtener items de una colección específica
-app.get('/api/zotero/collections/:id/items', async (req, res) => {
-    try {
-        const collectionId = parseInt(req.params.id);
-        const includeSubcollections = req.query.includeSubcollections !== 'false';
-        const items = await getCollectionItems(collectionId, includeSubcollections);
-        res.json({ 
-            items,
-            total: items.length,
-            withPdf: items.filter(i => i.hasPdf).length
-        });
-    } catch (error) {
-        console.error('Error obteniendo items de colección:', error);
-        res.status(500).json({ error: 'Error obteniendo items de colección' });
-    }
-});
-
-// Endpoint para obtener todas las entradas de Zotero
-app.get('/api/zotero/entries', async (req, res) => {
-    try {
-        const limit = Math.min(parseInt(req.query.limit) || 1000, 5000);
-        const entries = await getAllZoteroEntries(limit);
-        res.json({ 
-            entries,
-            total: entries.length,
-            withPdf: entries.filter(e => e.hasPdf).length,
-            withoutPdf: entries.filter(e => !e.hasPdf).length
-        });
-    } catch (error) {
-        console.error('Error obteniendo entradas de Zotero:', error);
-        res.status(500).json({ error: 'Error obteniendo entradas de Zotero' });
-    }
-});
-
-// Inicialización del servidor
 async function countPDFsFromDatabase() {
     return new Promise((resolve) => {
         if (!fs.existsSync(ZOTERO_DB)) {
