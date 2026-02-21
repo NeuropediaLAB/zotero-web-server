@@ -1411,11 +1411,12 @@ app.get('/api/resolve-pdf', async (req, res) => {
                 }
             }
         } else {
-            // Extraer storage key de formato storage:KEY/file
+            // Extraer storage key de formato storage:KEY/file o storage:filename.pdf
             if (attachmentPath.startsWith('storage:')) {
                 attachmentPath = attachmentPath.substring(8);
             }
             
+            // Buscar KEY en el path (formato KEY/file.pdf)
             const pathParts = attachmentPath.split('/');
             for (const part of pathParts) {
                 if (/^[A-Z0-9]{8}$/.test(part)) {
@@ -1423,7 +1424,29 @@ app.get('/api/resolve-pdf', async (req, res) => {
                     break;
                 }
             }
+            
+            // Si no hay KEY, buscar por filename en BD
+            if (!storageKey && fs.existsSync(ZOTERO_DB)) {
+                try {
+                    const db = new sqlite3.Database(ZOTERO_DB, sqlite3.OPEN_READONLY);
+                    const searchFilename = path.basename(attachmentPath);
+                    
+                    await new Promise((resolve) => {
+                        db.get('SELECT i.key FROM itemAttachments ia JOIN items i ON ia.itemID = i.itemID WHERE ia.path LIKE ? OR ia.path = ?', 
+                            ['%' + searchFilename, 'storage:' + searchFilename], (err, row) => {
+                            if (!err && row && row.key) {
+                                storageKey = row.key;
+                            }
+                            db.close();
+                            resolve();
+                        });
+                    });
+                } catch (error) {
+                    console.error('Error BD:', error);
+                }
+            }
         }
+
         
         if (!storageKey) {
             console.log('No se pudo determinar storage key');
