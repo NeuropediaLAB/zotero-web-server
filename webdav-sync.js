@@ -1,4 +1,3 @@
-const { createClient } = require('webdav');
 const fs = require('fs-extra');
 const path = require('path');
 
@@ -9,36 +8,45 @@ class ZoteroWebDAVSync {
         this.password = config.password;
         this.localBibliotecaDir = config.localBibliotecaDir;
         this.localZoteroDir = config.localZoteroDir;
-        
-        this.client = createClient(this.webdavUrl, {
-            username: this.username,
-            password: this.password
-        });
-        
-        console.log('🌐 Cliente WebDAV inicializado:', this.webdavUrl);
+        this.client = null;
+        this.initialized = false;
+    }
+    
+    async init() {
+        if (!this.initialized) {
+            const { createClient } = await import('webdav');
+            this.client = createClient(this.webdavUrl, {
+                username: this.username,
+                password: this.password
+            });
+            this.initialized = true;
+            console.log('Cliente WebDAV inicializado');
+        }
     }
     
     async syncDatabase() {
         try {
-            console.log('🔄 Sincronizando base de datos Zotero desde WebDAV...');
+            await this.init();
+            console.log('Sincronizando base de datos Zotero desde WebDAV...');
             const remotePath = '/zotero/zotero.sqlite';
             const localPath = path.join(this.localZoteroDir, 'zotero.sqlite');
             await fs.ensureDir(this.localZoteroDir);
             const contents = await this.client.getFileContents(remotePath);
             await fs.writeFile(localPath, contents);
-            console.log('✅ Base de datos Zotero sincronizada');
+            console.log('Base de datos Zotero sincronizada');
             return true;
         } catch (error) {
-            console.error('❌ Error sincronizando base de datos:', error.message);
+            console.error('Error sincronizando base de datos:', error.message);
             return false;
         }
     }
     
     async syncAllPDFs(limit = 100) {
         try {
-            console.log('🔄 Sincronizando PDFs desde WebDAV...');
+            await this.init();
+            console.log('Sincronizando PDFs desde WebDAV...');
             const pdfs = await this.listPDFs();
-            console.log(`📚 Encontrados ${pdfs.length} PDFs en WebDAV`);
+            console.log('Encontrados ' + pdfs.length + ' PDFs en WebDAV');
             
             const toSync = pdfs.slice(0, limit);
             let downloaded = 0, skipped = 0, failed = 0;
@@ -60,20 +68,21 @@ class ZoteroWebDAVSync {
                 await new Promise(resolve => setTimeout(resolve, 100));
             }
             
-            console.log(`✅ Sincronización: ${downloaded} descargados, ${skipped} omitidos, ${failed} fallos`);
+            console.log('Sincronizacion completada: ' + downloaded + ' descargados, ' + skipped + ' omitidos');
             return { success: true, total: pdfs.length, processed: toSync.length, downloaded, skipped, failed };
         } catch (error) {
-            console.error('❌ Error en sincronización de PDFs:', error.message);
+            console.error('Error en sincronizacion de PDFs:', error.message);
             return { success: false, error: error.message };
         }
     }
     
     async listPDFs(remotePath = '/zotero/storage') {
         try {
+            await this.init();
             const contents = await this.client.getDirectoryContents(remotePath, { deep: true, details: true });
             return contents.filter(item => item.type === 'file' && item.filename.toLowerCase().endsWith('.pdf'));
         } catch (error) {
-            console.error('❌ Error listando PDFs en WebDAV:', error.message);
+            console.error('Error listando PDFs en WebDAV:', error.message);
             return [];
         }
     }
@@ -85,18 +94,18 @@ class ZoteroWebDAVSync {
             await fs.writeFile(localPath, contents);
             return true;
         } catch (error) {
-            console.error(`❌ Error descargando ${path.basename(remotePath)}:`, error.message);
             return false;
         }
     }
     
     async testConnection() {
         try {
+            await this.init();
             await this.client.getDirectoryContents('/zotero');
-            console.log('✅ Conexión WebDAV exitosa');
+            console.log('Conexion WebDAV exitosa');
             return true;
         } catch (error) {
-            console.error('❌ Error conectando a WebDAV:', error.message);
+            console.error('Error conectando a WebDAV:', error.message);
             return false;
         }
     }
