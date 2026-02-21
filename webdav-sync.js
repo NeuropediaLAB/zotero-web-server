@@ -119,6 +119,21 @@ class ZoteroWebDAVSync {
         }
     }
     
+    async downloadFile(remotePath, localPath) {
+        try {
+            await this.init();
+            console.log(`⬇️  Descargando: ${remotePath} -> ${localPath}`);
+            await fs.ensureDir(path.dirname(localPath));
+            const contents = await this.client.getFileContents(remotePath);
+            await fs.writeFile(localPath, contents);
+            console.log(`✅ Descargado: ${path.basename(localPath)}`);
+            return true;
+        } catch (error) {
+            console.error(`Error descargando ${remotePath}:`, error.message);
+            return false;
+        }
+    }
+    
     async testConnection() {
         try {
             await this.init();

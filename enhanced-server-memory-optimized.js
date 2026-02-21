@@ -29,7 +29,9 @@ const BIBLIOTECA_DIR = process.env.BIBLIOTECA_DIR || '/home/arkantu/Documentos/Z
 const ZOTERO_DB = process.env.ZOTERO_DB || '/home/arkantu/Zotero/zotero.sqlite';
 // WebDAV Configuration
 const ZoteroWebDAVSync = require('./webdav-sync');
+const OCRIndexer = require('./ocr-indexer');
 let webdavSync = null;
+let ocrIndexer = null;
 
 if (process.env.WEBDAV_ENABLED === 'true') {
     webdavSync = new ZoteroWebDAVSync({
@@ -39,13 +41,14 @@ if (process.env.WEBDAV_ENABLED === 'true') {
         localBibliotecaDir: BIBLIOTECA_DIR,
         localZoteroDir: path.dirname(ZOTERO_DB)
     });
-    console.log('WebDAV habilitado');
+    console.log('✅ WebDAV habilitado');
 } else {
-    console.log('WebDAV deshabilitado');
+    console.log('⚠️ WebDAV deshabilitado');
 }
 
 const CACHE_DIR = process.env.CACHE_DIR || path.join(__dirname, 'data', 'cache');
 const PDF_INDEX_FILE = path.join(CACHE_DIR, 'pdf-text-index.json');
+const INDEX_DB_PATH = path.join(CACHE_DIR, 'ocr-index.sqlite');
 
 console.log('🌐 Iniciando servidor Zotero mejorado...');
 
@@ -1202,7 +1205,7 @@ app.get('/api/search-text', (req, res) => {
     }
 });
 
-app.get('/api/search', (req, res) => {
+app.get('/api/search', async (req, res) => {
     try {
         const query = req.query.q;
         const limit = Math.min(parseInt(req.query.limit) || 50, 100);
@@ -1226,13 +1229,36 @@ app.get('/api/search', (req, res) => {
             }
         }
 
-        const results = searchInPDFs(query, limit);
+        // Buscar en índice antiguo (en memoria)
+        const memoryResults = searchInPDFs(query, limit);
+        
+        // Buscar en documentos indexados con OCR
+        let ocrResults = [];
+        if (ocrIndexer) {
+            ocrResults = await ocrIndexer.searchInIndexedDocuments(query);
+        }
+        
+        // Combinar resultados
+        const allResults = [
+            ...memoryResults,
+            ...ocrResults.map(doc => ({
+                file: doc.filename,
+                snippet: doc.snippet,
+                storageKey: doc.storage_key,
+                source: 'ocr'
+            }))
+        ].slice(0, limit);
+        
         const response = { 
-            results, 
-            total: results.length,
+            results: allResults, 
+            total: allResults.length,
             query,
-            limited: results.length === limit,
-            cached: false
+            limited: allResults.length === limit,
+            cached: false,
+            sources: {
+                memory: memoryResults.length,
+                ocr: ocrResults.length
+            }
         };
         
         // Guardar en cache
@@ -1577,42 +1603,77 @@ app.get('/biblioteca/:filename(*)', (req, res) => {
 });
 
 // Endpoint para sincronización manual de archivos
-app.post('/api/sync', (req, res) => {
+app.post('/api/sync', async (req, res) => {
     try {
-        console.log('🔄 Iniciando sincronización manual...');
+        console.log('🔄 Iniciando sincronización e indexación OCR...');
         
-        if (stats.isIndexing) {
+        if (!webdavSync || !ocrIndexer) {
+            return res.status(500).json({ 
+                error: 'WebDAV o OCR Indexer no están habilitados',
+                success: false
+            });
+        }
+        
+        if (ocrIndexer.isIndexing) {
+            const progress = ocrIndexer.getProgress();
             return res.status(409).json({ 
                 error: 'Indexación ya en progreso',
                 isIndexing: true,
-                progress: indexingProgress
+                progress
             });
         }
 
-        const continued = continueIndexing();
+        // Obtener PDFs disponibles en WebDAV que no están indexados
+        const pdfsToIndex = await getPDFsToIndexFromWebDAV();
         
-        if (continued) {
-            res.json({ 
+        if (pdfsToIndex.length === 0) {
+            return res.json({
                 success: true,
-                message: 'Sincronización iniciada',
-                isIndexing: stats.isIndexing,
-                progress: indexingProgress,
-                totalPDFs: stats.totalPDFs,
-                indexedPDFs: stats.indexedPDFs
-            });
-        } else {
-            res.json({
-                success: true,
-                message: 'Todos los archivos ya están indexados',
+                message: 'Todos los PDFs disponibles ya están indexados',
                 isIndexing: false,
                 totalPDFs: stats.totalPDFs,
                 indexedPDFs: stats.indexedPDFs
             });
         }
+
+        // Iniciar indexación en segundo plano
+        ocrIndexer.startIndexing(pdfsToIndex).catch(err => {
+            console.error('Error durante indexación:', err);
+        });
+        
+        res.json({ 
+            success: true,
+            message: `Indexación iniciada para ${pdfsToIndex.length} PDFs`,
+            isIndexing: true,
+            toIndex: pdfsToIndex.length,
+            totalPDFs: stats.totalPDFs,
+            indexedPDFs: stats.indexedPDFs
+        });
         
     } catch (error) {
         console.error('Error en sincronización:', error);
         res.status(500).json({ error: 'Error iniciando sincronización' });
+    }
+});
+
+// Endpoint para obtener progreso de indexación
+app.get('/api/indexing/progress', (req, res) => {
+    try {
+        if (!ocrIndexer) {
+            return res.json({
+                isIndexing: false,
+                current: 0,
+                total: 0,
+                percentage: 0,
+                currentFile: ''
+            });
+        }
+        
+        const progress = ocrIndexer.getProgress();
+        res.json(progress);
+    } catch (error) {
+        console.error('Error obteniendo progreso:', error);
+        res.status(500).json({ error: 'Error obteniendo progreso' });
     }
 });
 
@@ -2082,34 +2143,72 @@ async function countPDFsFromDatabase() {
 }
 
 async function countIndexedPDFsFromDatabase() {
+    if (ocrIndexer) {
+        return await ocrIndexer.getIndexedCount();
+    }
+    return 0;
+}
+
+async function getPDFsToIndexFromWebDAV() {
+    if (!webdavSync || !ocrIndexer) {
+        return [];
+    }
+
+    // Obtener todos los PDFs de la BD de Zotero
     return new Promise((resolve) => {
-        const dbPath = path.join(__dirname, 'zotero.sqlite');
-        if (!fs.existsSync(dbPath)) {
-            resolve(0);
+        if (!fs.existsSync(ZOTERO_DB)) {
+            resolve([]);
             return;
         }
 
-        const db = new sqlite3.Database(dbPath, sqlite3.OPEN_READONLY, (err) => {
+        const db = new sqlite3.Database(ZOTERO_DB, sqlite3.OPEN_READONLY);
+        
+        const query = `
+            SELECT i.key as storageKey, ia.path as localPath
+            FROM itemAttachments ia 
+            JOIN items i ON ia.itemID = i.itemID 
+            WHERE ia.contentType = 'application/pdf' AND ia.path IS NOT NULL
+            LIMIT 1000
+        `;
+        
+        db.all(query, [], async (err, rows) => {
+            db.close();
+            
             if (err) {
-                console.error('Error abriendo BD de indexación:', err);
-                resolve(0);
+                console.error('Error obteniendo PDFs:', err);
+                resolve([]);
                 return;
             }
-        });
-
-        const query = "SELECT COUNT(*) as count FROM documents";
-
-        db.get(query, [], (err, row) => {
-            db.close();
-            if (err) {
-                console.error('Error contando PDFs indexados:', err);
-                resolve(0);
-            } else {
-                resolve(row.count || 0);
+            
+            // Filtrar solo los que existen en WebDAV y no están indexados
+            const pdfsToIndex = [];
+            
+            for (const row of rows) {
+                const storageKey = row.storageKey;
+                const filename = path.basename(row.localPath);
+                const webdavPath = `zotero/storage/${storageKey}/${filename}`;
+                
+                // Verificar si ya está indexado
+                const indexed = await ocrIndexer.isDocumentIndexed(storageKey);
+                if (indexed) continue;
+                
+                // Verificar si existe en WebDAV
+                const exists = await webdavSync.fileExists(webdavPath);
+                if (exists) {
+                    pdfsToIndex.push({
+                        storageKey,
+                        filename,
+                        webdavPath
+                    });
+                }
             }
+            
+            console.log(`📋 Encontrados ${pdfsToIndex.length} PDFs para indexar en WebDAV`);
+            resolve(pdfsToIndex);
         });
     });
 }
+
 
 
 async function initServer() {
@@ -2121,29 +2220,23 @@ async function initServer() {
         console.log(`📁 Creado directorio de caché: ${CACHE_DIR}`);
     }
     
+    // Inicializar OCR Indexer si WebDAV está habilitado
+    if (webdavSync) {
+        const OCRIndexer = require('./ocr-indexer');
+        ocrIndexer = new OCRIndexer(INDEX_DB_PATH, CACHE_DIR, webdavSync);
+        console.log('✅ OCR Indexer inicializado');
+    }
+    
     loadPDFIndex();
     console.log(`📚 Cargado índice de ${pdfTextIndex.size} PDFs`);
     
     try {
-        const libraryFiles = getLibraryPDFs(BIBLIOTECA_DIR, 1, 10000);
         const dbCount = await countPDFsFromDatabase();
         const indexedCount = await countIndexedPDFsFromDatabase();
         stats.totalPDFs = dbCount;
         stats.indexedPDFs = indexedCount;
         
-        console.log(`📊 PDFs en BD: ${stats.totalPDFs}, indexados en base de datos: ${stats.indexedPDFs}`);
-        
-        // Añadir solo los primeros 100 archivos no indexados para evitar sobrecarga
-        let addedToQueue = 0;
-        libraryFiles.files.forEach(file => {
-            if (!file.indexed && addedToQueue < 100) {
-                addToIndexingQueue(file.path);
-                addedToQueue++;
-            }
-        });
-        
-        indexingProgress.total = stats.totalPDFs;
-        console.log(`⚠️ Procesando en lotes de 100 archivos. Para continuar la indexación, usa POST /api/sync o espera a que se procese automáticamente.`);
+        console.log(`📊 PDFs en BD: ${stats.totalPDFs}, indexados en OCR: ${stats.indexedPDFs}`);
         
     } catch (error) {
         console.error('Error inicializando:', error);

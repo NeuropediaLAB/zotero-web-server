@@ -14,7 +14,11 @@ RUN apk add --no-cache \
     tesseract-ocr-data-eng \
     poppler-utils \
     imagemagick \
-    ghostscript
+    ghostscript \
+    python3 \
+    py3-pip \
+    qpdf \
+    && pip3 install --no-cache-dir ocrmypdf
 
 # Crear usuario no-root
 RUN addgroup -g 1001 -S nodejs && \

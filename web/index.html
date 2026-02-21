@@ -579,6 +579,27 @@
                     </div>
                 </div>
             </div>
+            
+            <!-- Barra de progreso de indexación -->
+            <div id="indexingProgress" style="display: none; margin-top: 1rem; padding: 1rem; background: #fff3cd; border-radius: 8px; border-left: 4px solid #ffc107;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                    <strong>🔍 Indexando PDFs con OCR...</strong>
+                    <span id="indexingPercentage">0%</span>
+                </div>
+                <div style="background: #e0e0e0; height: 20px; border-radius: 10px; overflow: hidden;">
+                    <div id="indexingBar" style="background: linear-gradient(90deg, #4CAF50, #45a049); height: 100%; width: 0%; transition: width 0.3s;"></div>
+                </div>
+                <div style="margin-top: 0.5rem; font-size: 0.9rem; color: #666;">
+                    <span id="indexingStatus">Preparando...</span>
+                </div>
+            </div>
+            
+            <!-- Botón de indexación -->
+            <div style="margin-top: 1rem; text-align: center;">
+                <button id="startIndexingBtn" onclick="startIndexing()" style="padding: 0.7rem 1.5rem; background: #4CAF50; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 1rem; font-weight: 500; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                    🚀 Iniciar Indexación OCR
+                </button>
+            </div>
         </div>
     </div>
 
@@ -1434,6 +1455,86 @@
         window.addEventListener('unhandledrejection', (event) => {
             console.error('❌ Promesa rechazada:', event.reason);
         });
+
+        // Función para iniciar indexación OCR
+        async function startIndexing() {
+            try {
+                const btn = document.getElementById('startIndexingBtn');
+                btn.disabled = true;
+                btn.textContent = '⏳ Iniciando...';
+                
+                const response = await fetch(`${API_BASE}/api/sync`, {
+                    method: 'POST'
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    if (data.isIndexing) {
+                        alert(`✅ ${data.message}\n\nSe indexarán ${data.toIndex} PDFs con OCR`);
+                        startProgressMonitoring();
+                    } else {
+                        alert(data.message);
+                        btn.disabled = false;
+                        btn.textContent = '🚀 Iniciar Indexación OCR';
+                    }
+                } else {
+                    alert(`Error: ${data.error}`);
+                    btn.disabled = false;
+                    btn.textContent = '🚀 Iniciar Indexación OCR';
+                }
+            } catch (error) {
+                console.error('Error iniciando indexación:', error);
+                alert('Error iniciando indexación: ' + error.message);
+                const btn = document.getElementById('startIndexingBtn');
+                btn.disabled = false;
+                btn.textContent = '🚀 Iniciar Indexación OCR';
+            }
+        }
+
+        let progressInterval = null;
+
+        // Monitorear progreso de indexación
+        function startProgressMonitoring() {
+            const progressDiv = document.getElementById('indexingProgress');
+            progressDiv.style.display = 'block';
+            
+            if (progressInterval) {
+                clearInterval(progressInterval);
+            }
+            
+            progressInterval = setInterval(async () => {
+                try {
+                    const response = await fetch(`${API_BASE}/api/indexing/progress`);
+                    const progress = await response.json();
+                    
+                    if (progress.isIndexing) {
+                        document.getElementById('indexingBar').style.width = progress.percentage + '%';
+                        document.getElementById('indexingPercentage').textContent = progress.percentage + '%';
+                        document.getElementById('indexingStatus').textContent = 
+                            `${progress.current} de ${progress.total} - ${progress.currentFile}`;
+                    } else {
+                        // Indexación completada
+                        progressDiv.style.display = 'none';
+                        clearInterval(progressInterval);
+                        progressInterval = null;
+                        
+                        const btn = document.getElementById('startIndexingBtn');
+                        btn.disabled = false;
+                        btn.textContent = '🚀 Iniciar Indexación OCR';
+                        
+                        // Recargar estadísticas
+                        loadStatsManually();
+                        
+                        if (progress.current > 0) {
+                            alert(`✅ Indexación completada!\n\n${progress.current} PDFs indexados con OCR`);
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error monitoreando progreso:', error);
+                }
+            }, 2000); // Cada 2 segundos
+        }
 
         // Inicializar cuando el DOM esté listo
         document.addEventListener('DOMContentLoaded', initializeApp);

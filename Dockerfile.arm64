@@ -6,8 +6,9 @@ LABEL version="2.1-arm64"
 RUN apk add --no-cache \
     tesseract-ocr tesseract-ocr-data-spa tesseract-ocr-data-eng \
     poppler-utils imagemagick ghostscript \
-    python3 py3-setuptools make g++ \
-    cairo-dev jpeg-dev pango-dev giflib-dev pixman-dev
+    python3 py3-pip py3-setuptools make g++ qpdf \
+    cairo-dev jpeg-dev pango-dev giflib-dev pixman-dev \
+    && pip3 install --no-cache-dir ocrmypdf
 
 RUN addgroup -g 1001 -S nodejs && adduser -S zotero -u 1001 -G nodejs
 
